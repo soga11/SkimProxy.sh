@@ -77,6 +77,22 @@ get_latest_version() {
     echo "$latest_version"
   fi
 }
+# Download ss-rust ssserver
+download_ss_rust() {
+  ### Install ss-rust ssserver
+  # - Create target directory
+  mkdir -p /opt/ss-rust
+  # - Construct the download URL
+  url="https://github.com/shadowsocks/shadowsocks-rust/releases/download/${version}/shadowsocks-${version}.${arch}-unknown-linux-musl.tar.xz"
+  # - Download and extract
+  echo -e "${GREEN_BG}Downloading ${url}...${NORMAL}"
+  curl -s -L -o shadowsocks.tar.xz "$url"
+  tar -xvf shadowsocks.tar.xz -C /opt/ss-rust/ > /dev/null
+  rm -rf shadowsocks.tar.xz
+  # - Keep only the ssserver binary and remove other files
+  find /opt/ss-rust/ -type f ! -name "ssserver" -exec rm -f {} \;
+  echo -e "${GREEN_BG}ss-rust ssserver installed to /opt/ss-rust/${NORMAL}"
+}
 
 # Set version argument or fallback to latest
 if [ -z "$3" ] || [ "$3" = "auto" ]; then
@@ -85,24 +101,19 @@ else
   version="$3"
 fi
 
-# Sync system time
-#ntpd -gd > /dev/null 2>&1
-
-### Install ss-rust ssserver
-# - Create target directory
-mkdir -p /opt/ss-rust
-# - Construct the download URL
-url="https://github.com/shadowsocks/shadowsocks-rust/releases/download/${version}/shadowsocks-${version}.${arch}-unknown-linux-musl.tar.xz"
-# - Download and extract
-echo -e "${GREEN_BG}Downloading ${url}...${NORMAL}"
-curl -s -L -o shadowsocks.tar.xz "$url"
-tar -xvf shadowsocks.tar.xz -C /opt/ss-rust/ > /dev/null
-rm -rf shadowsocks.tar.xz
-# - Keep only the ssserver binary and remove other files
-find /opt/ss-rust/ -type f ! -name "ssserver" -exec rm -f {} \;
-echo -e "${GREEN_BG}ss-rust ssserver installed to /opt/ss-rust/${NORMAL}"
-
-
+# Check existing version
+if [[ -x "/opt/ss-rust/ssserver" ]]; then
+    installed_version=$("/opt/ss-rust/ssserver" --version | awk '{print $2}')
+    if [[ "v$installed_version" == "$version" ]]; then
+        echo -e "${GREEN_BG}[Requirements] ss-rust ssserver core ${version} is already installed. Skipping download.${NORMAL}"
+    else
+        echo -e "${GREEN_BG}[Requirements] Installed version ($installed_version) differs from requested ($version). Updating...${NORMAL}"
+        download_ss_rust
+    fi
+else
+    echo -e "${GREEN_BG}[Requirements] ss-rust ssserver core not found. Proceeding with installation...${NORMAL}"
+  download_ss_rust
+fi
 
 ### Generate config
 # Accept port argument or generate a random port

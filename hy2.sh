@@ -106,6 +106,19 @@ get_latest_version() {
     echo "$latest_version"
   fi
 }
+# Download Hysteria 2 Core
+download_hy2_core() {
+  ### Install hy2 core
+  # - Create target directory
+  mkdir -p /opt/hy2-unmanned
+  # - Construct the download URL
+  url="https://github.com/apernet/hysteria/releases/download/${version}/hysteria-linux-${arch}"
+  # - Download and extract
+  echo -e "${GREEN_BG}Downloading ${url}...${NORMAL}"
+  curl -s -L -o /opt/hy2-unmanned/hy2 "$url"
+  chmod +x /opt/hy2-unmanned/hy2
+  echo -e "${GREEN_BG}hy2 core installed to /opt/hy2-unmanned${NORMAL}"
+}
 
 # Set version argument or fallback to latest
 if [ -z "$2" ] || [ "$2" = "auto" ]; then
@@ -114,16 +127,19 @@ else
   version="$2"
 fi
 
-### Install hy2 core
-# - Create target directory
-mkdir -p /opt/hy2-unmanned
-# - Construct the download URL
-url="https://github.com/apernet/hysteria/releases/download/${version}/hysteria-linux-${arch}"
-# - Download and extract
-echo -e "${GREEN_BG}Downloading ${url}...${NORMAL}"
-curl -s -L -o /opt/hy2-unmanned/hy2 "$url"
-chmod +x /opt/hy2-unmanned/hy2
-echo -e "${GREEN_BG}hy2 core installed to /opt/hy2-unmanned${NORMAL}"
+# Check existing version
+if [[ -x "/opt/hy2-unmanned/hy2" ]]; then
+    installed_version=$("/opt/hy2-unmanned/hy2" version | grep -i '^Version:' | awk '{print $2}')
+    if [[ "app/$installed_version" == "$version" ]]; then
+        echo -e "${GREEN_BG}[Requirements] Hysteria 2 core ${version} is already installed. Skipping download.${NORMAL}"
+    else
+        echo -e "${GREEN_BG}[Requirements] Installed version ($installed_version) differs from requested ($version). Updating...${NORMAL}"
+        download_hy2_core
+    fi
+else
+    echo -e "${GREEN_BG}[Requirements] Hysteria 2 core not found. Proceeding with installation...${NORMAL}"
+  download_hy2_core
+fi
 
 ### Generate config
 # Accept port argument or generate a random port
