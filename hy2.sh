@@ -110,14 +110,14 @@ get_latest_version() {
 download_hy2_core() {
   ### Install hy2 core
   # - Create target directory
-  mkdir -p /opt/hy2-unmanned
+  mkdir -p /opt/skim-hy2/
   # - Construct the download URL
   url="https://github.com/apernet/hysteria/releases/download/${version}/hysteria-linux-${arch}"
   # - Download and extract
   echo -e "${GREEN_BG}Downloading ${url}...${NORMAL}"
-  curl -s -L -o /opt/hy2-unmanned/hy2 "$url"
-  chmod +x /opt/hy2-unmanned/hy2
-  echo -e "${GREEN_BG}hy2 core installed to /opt/hy2-unmanned${NORMAL}"
+  curl -s -L -o /opt/skim-hy2/hy2 "$url"
+  chmod +x /opt/skim-hy2/hy2
+  echo -e "${GREEN_BG}hy2 core installed to /opt/skim-hy2/${NORMAL}"
 }
 
 # Set version argument or fallback to latest
@@ -128,8 +128,8 @@ else
 fi
 
 # Check existing version
-if [[ -x "/opt/hy2-unmanned/hy2" ]]; then
-    installed_version=$("/opt/hy2-unmanned/hy2" version | grep -i '^Version:' | awk '{print $2}')
+if [[ -x "/opt/skim-hy2/hy2" ]]; then
+    installed_version=$("/opt/skim-hy2/hy2" version | grep -i '^Version:' | awk '{print $2}')
     if [[ "app/$installed_version" == "$version" ]]; then
         echo -e "${GREEN_BG}[Requirements] Hysteria 2 core ${version} is already installed. Skipping download.${NORMAL}"
     else
@@ -149,11 +149,11 @@ else
   port=$1
 fi
 # Make config folder for the spec port
-mkdir -p /opt/hy2-unmanned/$port
+mkdir -p /opt/skim-hy2/$port
 # Generate password using openssl
 password=$(openssl rand -base64 16)
 # Self-sign cert
-cat <<EOF > /opt/hy2-unmanned/$port/openssl.conf
+cat <<EOF > /opt/skim-hy2/$port/openssl.conf
 [ req ]
 default_bits           = 1024
 prompt                 = no
@@ -175,19 +175,19 @@ subjectAltName = @alt_names
 [ alt_names ]
 DNS.1 = www.gov.hk
 EOF
-openssl req -x509 -new -nodes -days 3650 -keyout /opt/hy2-unmanned/$port/server.key -out /opt/hy2-unmanned/$port/server.crt -config /opt/hy2-unmanned/$port/openssl.conf
+openssl req -x509 -new -nodes -days 3650 -keyout /opt/skim-hy2/$port/server.key -out /opt/skim-hy2/$port/server.crt -config /opt/skim-hy2/$port/openssl.conf
 
 # Print the config
 echo -e "${GREEN_BG}Using address${NORMAL}: $ip:$port"
 echo -e "${GREEN_BG}Generated password${NORMAL}: $password"
-echo -e "${GREEN_BG}Server CA SHA256${NORMAL}: $(openssl x509 -noout -fingerprint -sha256 -in /opt/hy2-unmanned/$port/server.crt)"
+echo -e "${GREEN_BG}Server CA SHA256${NORMAL}: $(openssl x509 -noout -fingerprint -sha256 -in /opt/skim-hy2/$port/server.crt)"
 
 # Create hy2 config
-  cat <<EOF > /opt/hy2-unmanned/$port/config.yaml
+  cat <<EOF > /opt/skim-hy2/$port/config.yaml
 listen: :${port}
 tls:
-  cert: /opt/hy2-unmanned/${port}/server.crt
-  key: /opt/hy2-unmanned/${port}/server.key
+  cert: /opt/skim-hy2/${port}/server.crt
+  key: /opt/skim-hy2/${port}/server.key
 auth:
   type: password
   password: $password
@@ -203,7 +203,7 @@ After=network.target
 
 [Service]
 Environment="HYSTERIA_LOG_LEVEL=error"
-ExecStart=/opt/hy2-unmanned/hy2 server -c /opt/hy2-unmanned/$port/config.yaml
+ExecStart=/opt/skim-hy2/hy2 server -c /opt/skim-hy2/$port/config.yaml
 Restart=on-failure
 StandardOutput=append:/var/log/hy2-$port.log
 StandardError=append:/var/log/hy2-$port.log
@@ -215,7 +215,7 @@ EOF
   systemctl daemon-reload
   systemctl enable hy2-${port}
   systemctl start hy2-${port}
-  echo -e "${WHITE_BG}TO REMOVE THIS SERVICE:${NORMAL} systemctl disable --now hy2-${port} && rm /etc/systemd/system/hy2-${port}.service && rm -rf /opt/hy2-unmanned/$port"
+  echo -e "${WHITE_BG}TO REMOVE THIS SERVICE:${NORMAL} systemctl disable --now hy2-${port} && rm /etc/systemd/system/hy2-${port}.service && rm -rf /opt/skim-hy2/$port"
 
 elif [[ "$init_system" == "init" || "$init_system" == "openrc" ]]; then
   cat <<EOF > /etc/init.d/hy2-$port
@@ -223,8 +223,8 @@ elif [[ "$init_system" == "init" || "$init_system" == "openrc" ]]; then
 
 name="Hysteria 2 Server on :$port"
 description="Hysteria 2 server on :$port"
-command="/opt/hy2-unmanned/hy2"
-command_args=" server -c /opt/hy2-unmanned/$port/config.yaml"
+command="/opt/skim-hy2/hy2"
+command_args=" server -c /opt/skim-hy2/$port/config.yaml"
 pidfile="/var/run/hy2-$port.pid"
 logfile="/var/log/hy2-$port.log"
 
@@ -254,7 +254,7 @@ EOF
   chmod +x /etc/init.d/hy2-${port}
   rc-update add hy2-${port} default
   rc-service hy2-${port} start
-  echo -e "${WHITE_BG}TO REMOVE THIS SERVICE:${NORMAL} rc-update del hy2-${port} default && rc-service hy2-${port} stop && rm /etc/init.d/hy2-${port} && rm -rf /opt/hy2-unmanned/$port"
+  echo -e "${WHITE_BG}TO REMOVE THIS SERVICE:${NORMAL} rc-update del hy2-${port} default && rc-service hy2-${port} stop && rm /etc/init.d/hy2-${port} && rm -rf /opt/skim-hy2/$port"
 
 else
   echo -e "${RED_BG}Unsupported init system: $init_system.${NORMAL}"

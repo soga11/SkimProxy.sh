@@ -81,17 +81,17 @@ get_latest_version() {
 download_ss_rust() {
   ### Install ss-rust ssserver
   # - Create target directory
-  mkdir -p /opt/ss-rust
+  mkdir -p /opt/skim-ss/
   # - Construct the download URL
   url="https://github.com/shadowsocks/shadowsocks-rust/releases/download/${version}/shadowsocks-${version}.${arch}-unknown-linux-musl.tar.xz"
   # - Download and extract
   echo -e "${GREEN_BG}Downloading ${url}...${NORMAL}"
   curl -s -L -o shadowsocks.tar.xz "$url"
-  tar -xvf shadowsocks.tar.xz -C /opt/ss-rust/ > /dev/null
+  tar -xvf shadowsocks.tar.xz -C /opt/skim-ss/ > /dev/null
   rm -rf shadowsocks.tar.xz
   # - Keep only the ssserver binary and remove other files
-  find /opt/ss-rust/ -type f ! -name "ssserver" -exec rm -f {} \;
-  echo -e "${GREEN_BG}ss-rust ssserver installed to /opt/ss-rust/${NORMAL}"
+  find /opt/skim-ss/ -type f ! -name "ssserver" -exec rm -f {} \;
+  echo -e "${GREEN_BG}ss-rust ssserver installed to /opt/skim-ss/${NORMAL}"
 }
 
 # Set version argument or fallback to latest
@@ -102,8 +102,8 @@ else
 fi
 
 # Check existing version
-if [[ -x "/opt/ss-rust/ssserver" ]]; then
-    installed_version=$("/opt/ss-rust/ssserver" --version | awk '{print $2}')
+if [[ -x "/opt/skim-ss/ssserver" ]]; then
+    installed_version=$("/opt/skim-ss/ssserver" --version | awk '{print $2}')
     if [[ "v$installed_version" == "$version" ]]; then
         echo -e "${GREEN_BG}[Requirements] ss-rust ssserver core ${version} is already installed. Skipping download.${NORMAL}"
     else
@@ -161,7 +161,7 @@ Description=Shadowsocks Rust Server on :${port}
 After=network.target
 
 [Service]
-ExecStart=/opt/ss-rust/ssserver -U --server-addr [::]:$port --encrypt-method $cipher --password $password
+ExecStart=/opt/skim-ss/ssserver -U --server-addr [::]:$port --encrypt-method $cipher --password $password
 Restart=on-failure
 
 [Install]
@@ -179,7 +179,7 @@ elif [[ "$init_system" == "init" || "$init_system" == "openrc" ]]; then
 
 name="Shadowsocks Server on :${port}"
 description="Shadowsocks Rust server on :${port}"
-command="/opt/ss-rust/ssserver"
+command="/opt/skim-ss/ssserver"
 command_args=" -U --server-addr [::]:$port --encrypt-method $cipher --password $password"
 pidfile="/var/run/ssserver-${port}.pid"
 
