@@ -96,7 +96,7 @@ for tool in curl jq tar openssl xz; do
   fi
 done
 
-# Function to get the latest release version from GitHub API
+# Get the latest release version from GitHub API
 get_latest_version() {
   latest_version=$(curl -s "https://api.github.com/repos/apernet/hysteria/releases/latest" | jq -r .tag_name)
   if [[ "$latest_version" == "null" ]]; then
