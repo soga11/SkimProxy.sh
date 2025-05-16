@@ -58,7 +58,7 @@ install_packages() {
   elif command -v yum &> /dev/null; then
     yum install -y curl jq tar openssl xz
   else
-    echo -e "${RED_BG}Unsupported package manager.${NORMAL} Please install curl, jq, tar, and openssl manually."
+    echo -e "${RED_BG}[ERROR] Unsupported package manager.${NORMAL} Please install curl, jq, tar, and openssl manually."
     exit 1
   fi
 }
@@ -66,7 +66,7 @@ install_packages() {
 # Install required tools if missing
 for tool in curl jq tar openssl xz; do
   if ! command -v "$tool" &> /dev/null; then
-    echo -e "${GREEN_BG}$tool not found. Installing...${NORMAL}"
+    echo -e "${GREEN_BG}[Requirements] Installing missing dependencies...${NORMAL}"
     install_packages
     break
   fi
