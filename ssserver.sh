@@ -113,9 +113,12 @@ else
 fi
 # Accept IP argument or fetch the IP from Cloudflare CDN trace
 if [ -z "$4" ] || [ "$4" = "auto" ]; then
-  ip=$(curl -s https://cloudflare.com/cdn-cgi/trace -4 | grep -oP '(?<=ip=)[0-9.]+')
+  ip=$(curl -s https://cloudflare.com/cdn-cgi/trace -4 | grep -oP '(?<=ip=).*')
   if [ -z "$ip" ]; then
-    ip=$(curl -s https://cloudflare.com/cdn-cgi/trace -6 | grep -oP '(?<=ip=)[0-9a-f:]+')
+    ip=$(curl -s https://cloudflare.com/cdn-cgi/trace -6 | grep -oP '(?<=ip=).*')
+  fi
+  if echo "$ip" | grep -q ':'; then
+    ip="[$ip]"
   fi
 else 
   ip=$4
