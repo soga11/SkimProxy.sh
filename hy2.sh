@@ -217,41 +217,16 @@ depend() {
     after firewall
 }
 
-log_to_file() {
-    local message="$1"
-    echo "$(date '+%Y-%m-%d %H:%M:%S'): $message" >> "$logfile"
-}
-
 start() {
     ebegin "Starting $SERVICE_NAME"
-
-    # Use respawn to start and monitor the service
-    respawn -p "$pidfile" "$command" "$command_args" >> "$logfile" 2>&1 & # Redirect stdout and stderr to log
-
-    if [ $? -eq 0 ]; then
-        log_to_file "$SERVICE_NAME started successfully."
-        eend 0  # Success
-    else
-        log_to_file "Failed to start $SERVICE_NAME."
-        eend 1  # Failure
-    fi
+    start-stop-daemon --start --background --make-pidfile --pidfile \$pidfile --exec \$command -- \$command_args
+    eend \$?
 }
 
 stop() {
     ebegin "Stopping $SERVICE_NAME"
-
-    # Use kill to stop the process (more direct with respawn)
-    if [ -f "$pidfile" ]; then
-      PID=$(cat "$pidfile")
-      kill "$PID"
-      rm "$pidfile"
-      log_to_file "$SERVICE_NAME stopped."
-      eend 0
-    else
-      log_to_file "PID file not found for $SERVICE_NAME.  Assuming already stopped."
-      eend 0 # Treat as success, as it seems to be already stopped
-    fi
-
+    start-stop-daemon --stop --pidfile \$pidfile
+    eend \$?
 }
 
 restart() {
