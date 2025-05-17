@@ -19,6 +19,26 @@ case "$cpu_arch" in
   *) echo -e "${RED_BG}Unsupported architecture: $cpu_arch${NORMAL}"; exit 1 ;;
 esac
 
+urlencode() {
+    local LANG=C
+    local input
+    if [ -t 0 ]; then
+        input="$1"  # if no pipe, use argument
+    else
+        input=$(cat)  # if piped, read from stdin
+    fi
+    local length="${#input}"
+    for (( i = 0; i < length; i++ )); do
+        c="${input:i:1}"
+        case $c in
+            [a-zA-Z0-9.~_-]) printf "%s" "$c" ;;
+            $'\n') printf "%%0A" ;;  # Handle newlines
+            *) printf '%%%02X' "'$c" ;;
+        esac
+    done
+    echo
+}
+
 # Function to detect the package manager and install missing packages
 install_packages() {
   if command -v apk &> /dev/null; then
@@ -217,7 +237,7 @@ else
 fi
 
 # Generate ss:// URL
-ss_url="ss://$(echo -n "${cipher}:${password}" | base64)"
+ss_url="ss://$(echo -n "${cipher}:${password}" | base64 | urlencode)"
 # Generate JSON configuration
 json_config=$(cat <<EOF
 {
@@ -230,7 +250,7 @@ json_config=$(cat <<EOF
 }
 EOF
 )
-echo -e "${GREEN_BG}Shadowsocks URL:${NORMAL} $ss_url@$ip:$port#SkimProxy.sh+Shadowsocks-$cipher-$ip-$port"
+echo -e "${GREEN_BG}Shadowsocks URL:${NORMAL} $ss_url@$ip:$port#$(urlencode "SkimProxy.sh Shadowsocks $cipher $ip:$port")"
 echo -e "${GREEN_BG}JSON configuration:${NORMAL} $json_config"
 
 echo -e "${GREEN_BG}Shadowsocks Rust installed.${NORMAL}"

@@ -35,7 +35,11 @@ fi
 urlencode() {
     local LANG=C
     local input
-    input="$1"
+    if [ -t 0 ]; then
+        input="$1"  # if no pipe, use argument
+    else
+        input=$(cat)  # if piped, read from stdin
+    fi
     local length="${#input}"
     for (( i = 0; i < length; i++ )); do
         c="${input:i:1}"
@@ -262,7 +266,7 @@ else
 fi
 
 # Generate hy2:// URL
-hy2_url="hy2://$(urlencode $password)@$ip:$port/?insecure=1&sni=www.gov.hk#SkimProxy.sh+Hysteria2+$ip:$port"
+hy2_url="hy2://$(urlencode $password)@$ip:$port/?insecure=1&sni=www.gov.hk#$(urlencode "SkimProxy.sh Hysteria2 $ip:$port")"
 # Generate JSON configuration
 json_config=$(cat <<EOF
 {
