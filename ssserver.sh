@@ -173,6 +173,7 @@ echo -e "${GREEN_BG}Using cipher${NORMAL}: $cipher"
 echo -e "${GREEN_BG}Generated password${NORMAL}: $password"
 
 # Create system service based on init system
+echo -e "${GREEN_BG}Installing system service...${NORMAL}"
 init_system=$(cat /proc/1/comm)
 if [[ "$init_system" == "systemd" ]]; then
   cat <<EOF > /etc/systemd/system/ssserver-${port}.service

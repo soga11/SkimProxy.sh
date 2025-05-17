@@ -198,6 +198,7 @@ auth:
 EOF
 
 # Create system service based on init system
+echo -e "${GREEN_BG}Installing system service...${NORMAL}"
 init_system=$(cat /proc/1/comm)
 if [[ "$init_system" == "systemd" ]]; then
   cat <<EOF > /etc/systemd/system/hy2-${port}.service
