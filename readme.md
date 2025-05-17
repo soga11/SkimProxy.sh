@@ -24,25 +24,25 @@ Each argument is optional. Use `"auto"` to let the script decide, or leave all b
   for SIP022 (aka. SS2022) see https://shadowsocks.org/doc/sip022.html
 
 ```bash
-wget -qO ssserver.sh https://skimproxy.pages.dev/ssserver.sh && bash ssserver.sh <port> <cipher> <version> <hostname>
+wget https://skimproxy.pages.dev/ssserver.sh -qO ssserver.sh && bash ssserver.sh <port> <cipher> <version> <hostname>
 ```
 
 Minimal:
 
 ```bash
-wget -qO ssserver.sh https://skimproxy.pages.dev/ssserver.sh && bash ssserver.sh
+wget https://skimproxy.pages.dev/ssserver.sh -qO ssserver.sh && bash ssserver.sh
 ```
 
 ### ⚡ Hysteria 2
 
 ```bash
-wget https://skimproxy.pages.dev/hy2.sh -q -O hy2.sh && bash hy2.sh <port> <version> <hostname>
+wget https://skimproxy.pages.dev/hy2.sh -qO hy2.sh && bash hy2.sh <port> <version> <hostname>
 ```
 
 Minimal:
 
 ```bash
-wget https://skimproxy.pages.dev/hy2.sh -q -O hy2.sh && bash hy2.sh
+wget https://skimproxy.pages.dev/hy2.sh -qO hy2.sh && bash hy2.sh
 ```
 
 ### 🚀 Enable BBR + FQ_PIE
