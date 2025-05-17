@@ -4,13 +4,13 @@ SkimProxy.sh is a minimalistic Bash-based toolchain to deploy proxy servers with
 
 ## ⚠️ Warning
 
-- Not yet tested on **Alpine Linux** — use at your own risk.
+- Only tested on **Debian 12** (Minimal), **Alpine Linux** Latest (Virtual).
 - Assumes a standard Linux environment with `bash`, `wget`, and basic utilities available.
 - Assumes a functional human brain or at least an 8b LLM.
 
 ## 📦 Usage
 
-Each argument is optional. Use `"auto"` to let the script decide, or leave all blank to use full defaults.
+Each argument is optional. Use `"auto"` to let the script decide, or leave all blank to use full defaults as below:
 
 - **Port**: random between `10000–60000`
 - **Version**: latest release
@@ -19,14 +19,11 @@ Each argument is optional. Use `"auto"` to let the script decide, or leave all b
 ### 🛡️ Shadowsocks-Rust
 
 - **Cipher**: defaults to `2022-blake3-aes-128-gcm`
-
   when `Cipher` = `2022-blake3-aes-256-gcm`, `password` = `openssl rand -base64 32`
-
   see https://shadowsocks.org/doc/aead.html
+  for SIP022 (aka. SS2022) see https://shadowsocks.org/doc/sip022.html
 
-  for ss2022 or SIP022 see https://shadowsocks.org/doc/sip022.html
-
-```
+```bash
 wget -qO ssserver.sh https://skimproxy.pages.dev/ssserver.sh && bash ssserver.sh <port> <cipher> <version> <hostname>
 ```
 
@@ -38,7 +35,7 @@ wget -qO ssserver.sh https://skimproxy.pages.dev/ssserver.sh && bash ssserver.sh
 
 ### ⚡ Hysteria 2
 
-```bash 
+```bash
 wget https://skimproxy.pages.dev/hy2.sh -q -O hy2.sh && bash hy2.sh <port> <version> <hostname>
 ```
 
