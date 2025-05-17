@@ -237,7 +237,7 @@ else
 fi
 
 # Generate ss:// URL
-ss_url="ss://$(echo -n "${cipher}:${password}" | base64 | urlencode)"
+ss_url="ss://$(echo -n "${cipher}:${password}" | base64 | urlencode)@$ip:$port#$(urlencode "SkimProxy.sh Shadowsocks $cipher $ip:$port")"
 # Generate JSON configuration
 json_config=$(cat <<EOF
 {
@@ -250,7 +250,7 @@ json_config=$(cat <<EOF
 }
 EOF
 )
-echo -e "${GREEN_BG}Shadowsocks URL:${NORMAL} $ss_url@$ip:$port#$(urlencode "SkimProxy.sh Shadowsocks $cipher $ip:$port")"
+echo -e "${GREEN_BG}Shadowsocks URL:${NORMAL} $ss_url"
 echo -e "${GREEN_BG}JSON configuration:${NORMAL} $json_config"
 
 echo -e "${GREEN_BG}Shadowsocks Rust installed.${NORMAL}"
