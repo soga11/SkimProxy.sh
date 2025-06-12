@@ -110,7 +110,6 @@ get_latest_version() {
     echo "$latest_version"
   fi
 }
-
 # Download Hysteria 2 Core
 download_hy2_core() {
   ### Install hy2 core
@@ -188,7 +187,7 @@ echo -e "${GREEN_BG}Generated password${NORMAL}: $password"
 echo -e "${GREEN_BG}Server CA SHA256${NORMAL}: $(openssl x509 -noout -fingerprint -sha256 -in /opt/skim-hy2/$port/server.crt)"
 
 # Create hy2 config
-cat <<EOF > /opt/skim-hy2/$port/config.yaml
+  cat <<EOF > /opt/skim-hy2/$port/config.yaml
 listen: :${port}
 tls:
   cert: /opt/skim-hy2/${port}/server.crt
