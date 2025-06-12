@@ -149,14 +149,14 @@ fi
 ### Generate config
 # Accept port argument or use fixed port 52015
 if [ -z "$1" ] || [ "$1" = "auto" ]; then
-  port=52015  # 固定端口
+  port=52015
 else
   port=$1
 fi
 # Make config folder for the spec port
 mkdir -p /opt/skim-hy2/$port
 # Set fixed password
-password="Aq112211!"  # 设置固定密码
+password="Aq112211!"
 # Self-sign cert
 cat <<EOF > /opt/skim-hy2/$port/openssl.conf
 [ req ]
@@ -173,6 +173,12 @@ L                      = unmanned
 O                      = unmanned
 OU                     = unmanned
 CN                     = www.gov.hk
+
+[ v3_ext ]
+subjectAltName = @alt_names
+
+[ alt_names ]
+DNS.1 = www.gov.hk
 EOF
 openssl req -x509 -new -nodes -days 3650 -keyout /opt/skim-hy2/$port/server.key -out /opt/skim-hy2/$port/server.crt -config /opt/skim-hy2/$port/openssl.conf
 
