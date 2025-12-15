@@ -1,49 +1,47 @@
 #!/bin/bash
+#================================================================
+# Hysteria2 千兆带宽优化版
+# 上下行带宽：1000 Mbps (千兆)
+# SNI: icloud.cdn-apple.com (Apple CDN 伪装)
+# 版本: 4.0.0 - Gigabit Edition
+#================================================================
 
-# ========================================
-# Hysteria2 Ultimate Edition
-# Version: 7.0.0 - Production Ready
-# Date: 2025-12-15
-# Author: Enhanced from SkimProxy.sh
-# ========================================
-
-# Color System (borrowed from original)
 GREEN_BG='\033[42;30m'
 RED_BG='\033[41;97m'
-YELLOW_BG='\033[43;30m'
 WHITE_BG='\033[47;30m'
-BLUE_BG='\033[44;97m'
+YELLOW_BG='\033[43;30m'
+CYAN_BG='\033[46;30m'
 NORMAL='\033[0m'
 
-# Configuration
-HOSTNAME="ip-172-31-3-171"
-BOT_TOKEN="7808383148:AAF5LglthZukCj6eqbA0rEbJZQMAjlk--I0"
-CHAT_ID="-1002145386723"
-INSTALL_DIR="/opt/skim-hy2"
-SNI_DOMAIN="icloud.cdn-apple.com"
+if [[ $EUID -ne 0 ]]; then
+  echo -e "${RED_BG}This script requires root privileges.${NORMAL} Please run as root or use sudo."
+  exit 1
+fi
 
-# Helper Functions
-log_info() {
-    echo -e "${GREEN_BG}[INFO]${NORMAL} $1"
-}
+# Detect CPU architecture
+cpu_arch=$(uname -m)
+case "$cpu_arch" in
+  x86_64) arch="amd64" ;;
+  aarch64) arch="arm64" ;;
+  *) echo -e "${RED_BG}Unsupported architecture: $cpu_arch${NORMAL}"; exit 1 ;;
+esac
 
-log_success() {
-    echo -e "${GREEN_BG}$1${NORMAL}"
-}
+# Auto-detect IP
+if [ -z "$3" ] || [ "$3" = "auto" ]; then
+  ip=$(curl -s4 --max-time 5 https://api.ipify.org)
+  if [ -z "$ip" ]; then
+    ip=$(curl -s --max-time 5 https://cloudflare.com/cdn-cgi/trace -4 | grep -oP '(?<=ip=).*')
+  fi
+  if [ -z "$ip" ]; then
+    ip=$(curl -s --max-time 5 https://cloudflare.com/cdn-cgi/trace -6 | grep -oP '(?<=ip=).*')
+  fi
+  if echo "$ip" | grep -q ':'; then
+    ip="[$ip]"
+  fi
+else 
+  ip=$3
+fi
 
-log_warn() {
-    echo -e "${YELLOW_BG}[WARN]${NORMAL} $1"
-}
-
-log_error() {
-    echo -e "${RED_BG}[ERROR]${NORMAL} $1"
-}
-
-log_important() {
-    echo -e "${WHITE_BG}$1${NORMAL}"
-}
-
-# URL Encode Function (from original)
 urlencode() {
     local LANG=C
     local input
@@ -64,195 +62,94 @@ urlencode() {
     echo
 }
 
-# Telegram Push Function
-send_telegram() {
-    local message="$1"
-    local api_url="https://api.telegram.org/bot${BOT_TOKEN}/sendMessage"
-    
-    local escaped_message=$(echo -e "$message" | sed 's/"/\\"/g' | awk '{printf "%s\\n", $0}')
-    
-    local response=$(curl -s -X POST "$api_url" \
-        -H "Content-Type: application/json" \
-        -d "{
-            \"chat_id\": \"${CHAT_ID}\",
-            \"text\": \"${escaped_message}\",
-            \"parse_mode\": \"Markdown\",
-            \"disable_web_page_preview\": true
-        }")
-    
-    if echo "$response" | grep -q '"ok":true'; then
-        log_success "✅ 配置已推送到 Telegram"
-        return 0
-    else
-        log_warn "⚠️ Telegram 推送失败（可能是网络问题，不影响服务运行）"
-        return 1
-    fi
-}
-
-# Check Root
-check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        log_error "This script requires root privileges. Please run as root or use sudo."
-        exit 1
-    fi
-}
-
-# Detect CPU Architecture
-detect_arch() {
-    cpu_arch=$(uname -m)
-    case "$cpu_arch" in
-        x86_64) arch="amd64" ;;
-        aarch64) arch="arm64" ;;
-        armv7l) arch="arm" ;;
-        *) 
-            log_error "Unsupported architecture: $cpu_arch"
-            exit 1
-            ;;
-    esac
-    log_info "CPU Architecture: $cpu_arch → $arch"
-}
-
-# BusyBox Grep Compatibility (from original)
-check_grep() {
-    if grep --version 2>&1 | grep -q BusyBox; then
-        log_warn "BusyBox grep detected. Installing GNU grep..."
-        
-        if command -v apk >/dev/null; then
-            apk add grep
-        elif command -v apt-get >/dev/null; then
-            apt-get update && apt-get install -y grep
-        elif command -v pacman >/dev/null; then
-            pacman -Sy --noconfirm grep
-        else
-            log_error "Unsupported package manager. Please install GNU grep manually."
-            exit 1
-        fi
-        
-        log_success "✅ GNU grep installed"
-    fi
-}
-
-# Install Dependencies
 install_packages() {
-    local missing_tools=()
-    for tool in curl jq tar openssl xz; do
-        if ! command -v "$tool" &> /dev/null; then
-            missing_tools+=("$tool")
-        fi
-    done
-    
-    if [ ${#missing_tools[@]} -eq 0 ]; then
-        log_info "All dependencies are already installed"
-        return 0
-    fi
-    
-    log_info "Installing missing dependencies: ${missing_tools[*]}"
-    
-    if command -v apk &> /dev/null; then
-        apk update && apk add curl jq tar openssl xz
-    elif command -v apt-get &> /dev/null; then
-        apt-get update && apt-get install -y curl jq tar openssl xz-utils
-    elif command -v pacman &> /dev/null; then
-        pacman -Syu --noconfirm curl jq tar openssl xz
-    elif command -v dnf &> /dev/null; then
-        dnf install -y curl jq tar openssl xz
-    elif command -v yum &> /dev/null; then
-        yum install -y curl jq tar openssl xz
-    else
-        log_error "Unsupported package manager. Please install dependencies manually."
-        exit 1
-    fi
-    
-    log_success "✅ Dependencies installed"
+  if command -v apk &> /dev/null; then
+    apk update && apk add curl jq tar openssl xz
+  elif command -v apt-get &> /dev/null; then
+    apt-get update && apt-get install -y curl jq tar openssl xz-utils
+  elif command -v pacman &> /dev/null; then
+    pacman -Syu --noconfirm curl jq tar openssl xz
+  elif command -v dnf &> /dev/null; then
+    dnf install -y curl jq tar openssl xz
+  elif command -v yum &> /dev/null; then
+    yum install -y curl jq tar openssl xz
+  else
+    echo -e "${RED_BG}[ERROR] Unsupported package manager.${NORMAL}"
+    exit 1
+  fi
 }
 
-# Get Latest Version
+is_busybox_grep() {
+  grep --version 2>&1 | grep -q BusyBox
+}
+
+if is_busybox_grep; then
+  echo -e "${GREEN_BG}[Requirements] BusyBox grep detected. Installing GNU grep.${NORMAL}"
+  if command -v apk >/dev/null; then
+    apk add grep
+  elif command -v apt-get >/dev/null; then
+    apt-get update && apt-get install -y grep
+  fi
+fi
+
+for tool in curl jq tar openssl xz; do
+  if ! command -v "$tool" &> /dev/null; then
+    echo -e "${GREEN_BG}[Requirements] Installing missing dependencies...${NORMAL}"
+    install_packages
+    break
+  fi
+done
+
 get_latest_version() {
-    local latest_version=$(curl -s "https://api.github.com/repos/apernet/hysteria/releases/latest" | jq -r .tag_name)
-    if [[ "$latest_version" == "null" ]] || [[ -z "$latest_version" ]]; then
-        log_warn "Unable to fetch latest version, using fallback: app/v2.6.5"
-        echo "app/v2.6.5"
-    else
-        echo "$latest_version"
-    fi
+  latest_version=$(curl -s --max-time 10 "https://api.github.com/repos/apernet/hysteria/releases/latest" | jq -r .tag_name)
+  if [[ "$latest_version" == "null" || -z "$latest_version" ]]; then
+    echo "app/v2.6.1"
+  else
+    echo "$latest_version"
+  fi
 }
 
-# Download Hysteria2 Core (with version check from original)
 download_hy2_core() {
-    local version="$1"
-    
-    mkdir -p "$INSTALL_DIR"
-    
-    # Check existing version
-    if [[ -x "$INSTALL_DIR/hy2" ]]; then
-        local installed_version=$("$INSTALL_DIR/hy2" version 2>/dev/null | grep -i '^Version:' | awk '{print $2}')
-        if [[ "app/$installed_version" == "$version" ]]; then
-            log_success "✅ Hysteria2 ${version} is already installed. Skipping download."
-            return 0
-        else
-            log_info "Installed version (app/$installed_version) differs from requested ($version). Updating..."
-        fi
-    fi
-    
-    local url="https://github.com/apernet/hysteria/releases/download/${version}/hysteria-linux-${arch}"
-    
-    log_info "Downloading from: $url"
-    
-    if ! curl -s -L -o "$INSTALL_DIR/hy2" "$url"; then
-        log_error "Download failed"
-        exit 1
-    fi
-    
-    chmod +x "$INSTALL_DIR/hy2"
-    log_success "✅ Hysteria2 core installed to $INSTALL_DIR"
+  mkdir -p /opt/skim-hy2/
+  url="https://github.com/apernet/hysteria/releases/download/${version}/hysteria-linux-${arch}"
+  echo -e "${GREEN_BG}Downloading ${url}...${NORMAL}"
+  curl -s -L -o /opt/skim-hy2/hy2 "$url"
+  chmod +x /opt/skim-hy2/hy2
+  echo -e "${GREEN_BG}hy2 core installed to /opt/skim-hy2/${NORMAL}"
 }
 
-# Get Server IP (from original)
-get_server_ip() {
-    local ip=$(curl -s https://cloudflare.com/cdn-cgi/trace -4 | grep -oP '(?<=ip=).*')
-    if [ -z "$ip" ]; then
-        ip=$(curl -s https://cloudflare.com/cdn-cgi/trace -6 | grep -oP '(?<=ip=).*')
-    fi
-    if echo "$ip" | grep -q ':'; then
-        ip="[$ip]"
-    fi
-    
-    if [ -z "$ip" ]; then
-        log_warn "Unable to auto-detect IP. Please enter manually:"
-        read -p "Server IP: " ip
-    fi
-    
-    echo "$ip"
-}
+if [ -z "$2" ] || [ "$2" = "auto" ]; then
+  version=$(get_latest_version)
+else
+  version="$2"
+fi
 
-# Check Port Conflict
-check_port_conflict() {
-    local port="$1"
-    
-    if ss -tulnp 2>/dev/null | grep -q ":$port "; then
-        log_error "Port $port is already in use:"
-        ss -tulnp | grep ":$port "
-        return 1
+if [[ -x "/opt/skim-hy2/hy2" ]]; then
+    installed_version=$("/opt/skim-hy2/hy2" version | grep -i '^Version:' | awk '{print $2}')
+    if [[ "app/$installed_version" == "$version" ]]; then
+        echo -e "${GREEN_BG}[Requirements] Hysteria 2 core ${version} is already installed.${NORMAL}"
+    else
+        echo -e "${GREEN_BG}[Requirements] Updating from $installed_version to $version...${NORMAL}"
+        download_hy2_core
     fi
-    
-    if [[ -f "/etc/systemd/system/hy2-${port}.service" ]]; then
-        log_warn "Service hy2-${port} already exists"
-        return 1
-    fi
-    
-    return 0
-}
+else
+    echo -e "${GREEN_BG}[Requirements] Hysteria 2 core not found. Installing...${NORMAL}"
+    download_hy2_core
+fi
 
-# Generate Certificate
-generate_cert() {
-    local port="$1"
-    local cert_dir="$INSTALL_DIR/$port"
-    
-    mkdir -p "$cert_dir"
-    
-    log_info "Generating self-signed certificate (SNI: ${SNI_DOMAIN})..."
-    
-    cat > "$cert_dir/openssl.conf" <<EOF
+if [ -z "$1" ] || [ "$1" = "auto" ]; then
+  port=52015
+else
+  port=$1
+fi
+
+mkdir -p /opt/skim-hy2/$port
+password="Aq112211!"
+
+# Generate self-signed certificate with Apple CDN SNI
+echo -e "${CYAN_BG}Generating self-signed certificate (SNI: icloud.cdn-apple.com)...${NORMAL}"
+
+cat <<EOF > /opt/skim-hy2/$port/openssl.conf
 [ req ]
 default_bits           = 2048
 prompt                 = no
@@ -265,459 +162,322 @@ C                      = US
 ST                     = California
 L                      = Cupertino
 O                      = Apple Inc.
-OU                     = Apple CDN
-CN                     = ${SNI_DOMAIN}
+OU                     = CDN Services
+CN                     = icloud.cdn-apple.com
 
 [ v3_ext ]
 subjectAltName = @alt_names
 
 [ alt_names ]
-DNS.1 = ${SNI_DOMAIN}
-DNS.2 = *.${SNI_DOMAIN}
+DNS.1 = icloud.cdn-apple.com
+DNS.2 = *.cdn-apple.com
+DNS.3 = *.apple.com
+DNS.4 = *.icloud.com
 EOF
-    
-    openssl req -x509 -new -nodes -days 36500 \
-        -keyout "$cert_dir/server.key" \
-        -out "$cert_dir/server.crt" \
-        -config "$cert_dir/openssl.conf" \
-        > /dev/null 2>&1
-    
-    chmod 600 "$cert_dir/server.key"
-    chmod 644 "$cert_dir/server.crt"
-    
-    local fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "$cert_dir/server.crt" | cut -d'=' -f2)
-    
-    log_success "✅ Certificate generated"
-    log_info "SHA256 Fingerprint: $fingerprint"
-}
 
-# Create Configuration
-create_config() {
-    local port="$1"
-    local password="$2"
-    local config_dir="$INSTALL_DIR/$port"
-    
-    cat > "$config_dir/config.yaml" <<EOF
+openssl req -x509 -new -nodes -days 3650 \
+  -keyout /opt/skim-hy2/$port/server.key \
+  -out /opt/skim-hy2/$port/server.crt \
+  -config /opt/skim-hy2/$port/openssl.conf 2>/dev/null
+
+rm -f /opt/skim-hy2/$port/openssl.conf
+
+echo -e "${GREEN_BG}Using address${NORMAL}: $ip:$port"
+echo -e "${GREEN_BG}Generated password${NORMAL}: $password"
+echo -e "${GREEN_BG}Server CA SHA256${NORMAL}: $(openssl x509 -noout -fingerprint -sha256 -in /opt/skim-hy2/$port/server.crt)"
+
+# ==================== 千兆带宽配置 ====================
+cat <<EOF > /opt/skim-hy2/$port/config.yaml
 listen: :${port}
 
 tls:
-  cert: ${config_dir}/server.crt
-  key: ${config_dir}/server.key
+  cert: /opt/skim-hy2/${port}/server.crt
+  key: /opt/skim-hy2/${port}/server.key
 
 auth:
   type: password
-  password: ${password}
+  password: $password
 
+# ========== 千兆带宽配置（无限制）==========
+# 选项 1: 完全不限制（推荐千兆服务器）
+# bandwidth:
+#   up: 0
+#   down: 0
+
+# 选项 2: 1 Gbps 带宽配置（推荐）
 bandwidth:
-  up: 0
-  down: 0
+  up: 1000 mbps
+  down: 1000 mbps
 
+# ========== QUIC 传输优化（千兆级别）==========
 quic:
-  initStreamReceiveWindow: 33554432
-  maxStreamReceiveWindow: 33554432
-  initConnReceiveWindow: 67108864
-  maxConnReceiveWindow: 67108864
-  maxIdleTimeout: 60s
-  maxIncomingStreams: 2048
+  initStreamReceiveWindow: 33554432      # 32 MB (千兆网络)
+  maxStreamReceiveWindow: 33554432       # 32 MB
+  initConnReceiveWindow: 67108864        # 64 MB (千兆网络)
+  maxConnReceiveWindow: 67108864         # 64 MB
+  maxIdleTimeout: 90s                    # 延长空闲超时
+  maxIncomingStreams: 2048               # 增加并发流
   disablePathMTUDiscovery: false
 
-ignoreClientBandwidth: true
-disableUDP: false
-udpIdleTimeout: 60s
+# ========== 高级性能优化 ==========
+# 忽略客户端带宽配置（强制使用服务器配置）
+ignoreClientBandwidth: false
 
-speedTest: false
+# UDP 转发
+udpForwarding: true
 
-masquerade:
-  type: proxy
-  proxy:
-    url: https://www.apple.com
-    rewriteHost: true
+# 快速打开连接
+fastOpen: true
+
+# 日志级别
+log:
+  level: info
+
+# ========== 混淆配置（可选，增强抗封锁）==========
+# obfs:
+#   type: salamander
+#   salamander:
+#     password: apple_obfs_secret_2024
 EOF
-    
-    log_success "✅ Configuration file created"
-}
 
-# Apply BBR Optimization (silent check from original)
-apply_bbr() {
-    local current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
-    
-    if [[ "$current_cc" == "bbr" ]]; then
-        log_success "✅ BBR is already enabled"
-        return 0
-    fi
-    
-    log_info "Applying BBR + network optimizations..."
-    
-    if ! grep -q "Hysteria2 Network Optimization" /etc/sysctl.conf 2>/dev/null; then
-        cat >> /etc/sysctl.conf <<EOF
+echo -e "${GREEN_BG}Installing system service...${NORMAL}"
+init_system=$(cat /proc/1/comm)
 
-# ============================================
-# Hysteria2 Network Optimization
-# Hostname: ${HOSTNAME}
-# Date: $(date '+%Y-%m-%d %H:%M:%S')
-# ============================================
-
-# BBR Congestion Control
-net.core.default_qdisc=fq_pie
-net.ipv4.tcp_congestion_control=bbr
-
-# Network Buffer Optimization (64MB)
-net.core.rmem_max=67108864
-net.core.wmem_max=67108864
-net.core.rmem_default=16777216
-net.core.wmem_default=16777216
-net.ipv4.tcp_rmem=4096 16777216 67108864
-net.ipv4.tcp_wmem=4096 16777216 67108864
-
-# UDP Buffer
-net.core.netdev_max_backlog=16384
-net.ipv4.udp_rmem_min=8192
-net.ipv4.udp_wmem_min=8192
-
-# Connection Tracking
-net.netfilter.nf_conntrack_max=1000000
-net.nf_conntrack_max=1000000
-
-# TCP Optimization
-net.ipv4.tcp_mtu_probing=1
-net.ipv4.tcp_fastopen=3
-net.ipv4.tcp_slow_start_after_idle=0
-net.ipv4.tcp_fin_timeout=15
-net.ipv4.tcp_keepalive_time=300
-net.ipv4.tcp_keepalive_probes=5
-net.ipv4.tcp_keepalive_intvl=15
-
-# File Descriptors
-fs.file-max=1048576
-fs.inotify.max_user_instances=8192
-fs.inotify.max_user_watches=524288
-
-EOF
-    fi
-    
-    sysctl -p > /dev/null 2>&1
-    
-    # Set ulimit
-    if ! grep -q "Hysteria2 Optimization" /etc/security/limits.conf 2>/dev/null; then
-        cat >> /etc/security/limits.conf <<EOF
-
-# Hysteria2 Optimization
-* soft nofile 1048576
-* hard nofile 1048576
-* soft nproc 65536
-* hard nproc 65536
-
-EOF
-    fi
-    
-    log_success "✅ Network optimization applied"
-}
-
-# Create Systemd Service
-create_service() {
-    local port="$1"
-    local service_file="/etc/systemd/system/hy2-${port}.service"
-    
-    cat > "$service_file" <<EOF
+if [[ "$init_system" == "systemd" ]]; then
+  cat <<EOF > /etc/systemd/system/hy2-${port}.service
 [Unit]
-Description=Hysteria2 Server (${HOSTNAME} - Port ${port})
-After=network.target nss-lookup.target
+Description=Hysteria 2 Server (Gigabit Edition) on :${port}
+Documentation=https://v2.hysteria.network/
+After=network.target network-online.target nss-lookup.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=${INSTALL_DIR}/${port}
-Environment="HYSTERIA_LOG_LEVEL=warn"
-ExecStart=${INSTALL_DIR}/hy2 server -c ${INSTALL_DIR}/${port}/config.yaml
-Restart=always
-RestartSec=3
+Environment="HYSTERIA_LOG_LEVEL=info"
+ExecStart=/opt/skim-hy2/hy2 server -c /opt/skim-hy2/$port/config.yaml
+Restart=on-failure
+RestartSec=5s
 LimitNOFILE=1048576
-StandardOutput=append:/var/log/hy2-${port}.log
-StandardError=append:/var/log/hy2-${port}.log
+LimitNPROC=512
+StandardOutput=append:/var/log/hy2-$port.log
+StandardError=append:/var/log/hy2-$port.log
+
+# Performance tuning
+Nice=-10
+CPUSchedulingPolicy=fifo
+IOSchedulingClass=realtime
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    
-    systemctl daemon-reload
-    systemctl enable hy2-${port}.service > /dev/null 2>&1
-    systemctl start hy2-${port}.service
-    
-    sleep 2
-    
-    if systemctl is-active --quiet hy2-${port}.service; then
-        log_success "✅ Service hy2-${port} started successfully"
-    else
-        log_error "Service failed to start. Check logs: journalctl -u hy2-${port} -n 50"
-        exit 1
-    fi
+
+  systemctl daemon-reload
+  systemctl enable hy2-${port}
+  systemctl start hy2-${port}
+  
+  sleep 2
+  
+  if systemctl is-active --quiet hy2-${port}; then
+    echo -e "${GREEN_BG}[Service] ✓ Successfully started${NORMAL}"
+  else
+    echo -e "${RED_BG}[Service] ✗ Failed to start${NORMAL}"
+    journalctl -u hy2-${port} -n 20 --no-pager
+  fi
+  
+  echo ""
+  echo -e "${WHITE_BG}========== Service Management ==========${NORMAL}"
+  echo "  Status:  systemctl status hy2-${port}"
+  echo "  Restart: systemctl restart hy2-${port}"
+  echo "  Logs:    journalctl -u hy2-${port} -f"
+  echo "  Remove:  systemctl disable --now hy2-${port} && rm /etc/systemd/system/hy2-${port}.service && rm -rf /opt/skim-hy2/$port"
+  echo -e "${WHITE_BG}=========================================${NORMAL}"
+
+elif [[ "$init_system" == "init" || "$init_system" == "openrc" ]]; then
+  cat <<EOF > /etc/init.d/hy2-$port
+#!/sbin/openrc-run
+
+name="Hysteria 2 Server (Gigabit) on :$port"
+description="Hysteria 2 server on :$port"
+command="/opt/skim-hy2/hy2"
+command_args="server -c /opt/skim-hy2/$port/config.yaml"
+pidfile="/var/run/hy2-$port.pid"
+logfile="/var/log/hy2-$port.log"
+
+depend() {
+    need net
+    after firewall
 }
 
-# Generate Share Links
-generate_links() {
-    local ip="$1"
-    local port="$2"
-    local password="$3"
+start() {
+    ebegin "Starting \$name"
+    start-stop-daemon --start --background --make-pidfile --pidfile \$pidfile \\
+      --stdout \$logfile --stderr \$logfile --exec \$command -- \$command_args
+    eend \$?
+}
+
+stop() {
+    ebegin "Stopping \$name"
+    start-stop-daemon --stop --pidfile \$pidfile
+    eend \$?
+}
+EOF
+
+  chmod +x /etc/init.d/hy2-${port}
+  rc-update add hy2-${port} default
+  rc-service hy2-${port} start
+  
+  echo -e "${WHITE_BG}TO REMOVE:${NORMAL} rc-update del hy2-${port} && rc-service hy2-${port} stop && rm /etc/init.d/hy2-${port} && rm -rf /opt/skim-hy2/$port"
+fi
+
+# ==================== 千兆网络系统优化 ====================
+echo ""
+echo -e "${YELLOW_BG}========== System Network Optimization ==========${NORMAL}"
+read -p "Enable Gigabit Network Optimization (BBR + High Buffer)? (Y/n): " enable_opt
+
+if [[ "$enable_opt" != "n" && "$enable_opt" != "N" ]]; then
+  echo -e "${GREEN_BG}Applying Gigabit Network Optimization...${NORMAL}"
+  
+  if ! grep -q "# Hysteria2 Gigabit Optimization" /etc/sysctl.conf; then
+    cat >> /etc/sysctl.conf << 'SYSCTL_EOF'
+
+# Hysteria2 Gigabit Optimization
+# TCP 拥塞控制
+net.core.default_qdisc=fq_pie
+net.ipv4.tcp_congestion_control=bbr
+
+# 千兆网络缓冲区（64 MB）
+net.core.rmem_max=67108864
+net.core.wmem_max=67108864
+net.core.rmem_default=16777216
+net.core.wmem_default=16777216
+net.ipv4.tcp_rmem=4096 87380 67108864
+net.ipv4.tcp_wmem=4096 65536 67108864
+net.ipv4.udp_rmem_min=16384
+net.ipv4.udp_wmem_min=16384
+
+# QUIC/UDP 优化
+net.core.netdev_max_backlog=50000
+net.core.netdev_budget=600
+net.core.netdev_budget_usecs=8000
+
+# TCP 性能优化
+net.ipv4.tcp_fastopen=3
+net.ipv4.tcp_slow_start_after_idle=0
+net.ipv4.tcp_mtu_probing=1
+net.ipv4.tcp_tw_reuse=1
+net.ipv4.tcp_fin_timeout=15
+net.ipv4.tcp_keepalive_time=300
+net.ipv4.tcp_keepalive_probes=5
+net.ipv4.tcp_keepalive_intvl=15
+
+# 连接追踪优化
+net.netfilter.nf_conntrack_max=1000000
+net.netfilter.nf_conntrack_tcp_timeout_established=7200
+
+# 文件描述符限制
+fs.file-max=1048576
+
+# 虚拟内存优化
+vm.swappiness=10
+vm.dirty_ratio=15
+vm.dirty_background_ratio=5
+SYSCTL_EOF
     
-    # Hysteria2 URL (with proper encoding from original)
-    local hy2_url="hy2://$(urlencode "$password")@${ip}:${port}/?insecure=1&sni=${SNI_DOMAIN}#$(urlencode "${HOSTNAME}-HY2-${port}")"
+    # 应用配置
+    sysctl -p > /dev/null 2>&1
     
-    # Sing-box Config
-    local singbox_config=$(cat <<EOF
+    echo -e "${GREEN_BG}Gigabit optimization applied!${NORMAL}"
+    echo ""
+    echo -e "${CYAN_BG}Current Configuration:${NORMAL}"
+    echo "  Congestion Control: $(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')"
+    echo "  Queue Discipline: $(sysctl net.core.default_qdisc | awk '{print $3}')"
+    echo "  Max Buffer Size: $(sysctl net.core.rmem_max | awk '{print $3/1048576}') MB"
+  else
+    echo -e "${YELLOW_BG}Network optimization already configured.${NORMAL}"
+  fi
+  
+  # 调整文件描述符限制
+  if ! grep -q "* soft nofile 1048576" /etc/security/limits.conf; then
+    cat >> /etc/security/limits.conf << 'LIMITS_EOF'
+# Hysteria2 File Descriptor Limits
+* soft nofile 1048576
+* hard nofile 1048576
+root soft nofile 1048576
+root hard nofile 1048576
+LIMITS_EOF
+    echo -e "${GREEN_BG}File descriptor limits increased to 1048576${NORMAL}"
+  fi
+fi
+
+# Generate share links with Apple CDN SNI
+hy2_url="hysteria2://$(urlencode $password)@${ip//[\[\]]/}:$port/?insecure=1&sni=icloud.cdn-apple.com#$(urlencode "Hysteria2-Gigabit-$port")"
+
+json_config=$(cat <<JSON_EOF
 {
   "type": "hysteria2",
-  "tag": "${HOSTNAME}-HY2-${port}",
-  "server": "${ip}",
-  "server_port": ${port},
-  "password": "${password}",
+  "tag": "hy2-gigabit",
+  "server": "${ip//[\[\]]/}",
+  "server_port": $port,
+  "password": "$password",
   "tls": {
     "enabled": true,
-    "server_name": "${SNI_DOMAIN}",
     "insecure": true,
-    "alpn": ["h3"]
-  }
+    "server_name": "icloud.cdn-apple.com"
+  },
+  "up_mbps": 1000,
+  "down_mbps": 1000
 }
-EOF
+JSON_EOF
 )
-    
-    # Clash Meta Config
-    local clash_config=$(cat <<EOF
-- name: ${HOSTNAME}-HY2-${port}
-  type: hysteria2
-  server: ${ip}
-  port: ${port}
-  password: ${password}
-  skip-cert-verify: true
-  sni: ${SNI_DOMAIN}
-  alpn:
-    - h3
-EOF
+
+clash_config=$(cat <<CLASH_EOF
+proxies:
+  - name: "Hysteria2-Gigabit"
+    type: hysteria2
+    server: ${ip//[\[\]]/}
+    port: $port
+    password: $password
+    skip-cert-verify: true
+    sni: icloud.cdn-apple.com
+    up: 1000
+    down: 1000
+CLASH_EOF
 )
-    
-    # Save to file
-    cat > "$INSTALL_DIR/$port/client-config.txt" <<EOF
-========================================
-Hysteria2 客户端配置
-主机名: ${HOSTNAME}
-服务器: ${ip}:${port}
-密码: ${password}
-SNI: ${SNI_DOMAIN}
-带宽: 无限制 (自动协商)
-========================================
 
-【Hysteria2 分享链接】
-${hy2_url}
-
-【Sing-box 配置】
-${singbox_config}
-
-【Clash Meta 配置】
-${clash_config}
-
-========================================
-管理命令:
-- 启动: systemctl start hy2-${port}
-- 停止: systemctl stop hy2-${port}
-- 重启: systemctl restart hy2-${port}
-- 状态: systemctl status hy2-${port}
-- 日志: journalctl -u hy2-${port} -f
-
-卸载命令:
-systemctl disable --now hy2-${port} && rm /etc/systemd/system/hy2-${port}.service && rm -rf ${INSTALL_DIR}/${port}
-========================================
-EOF
-    
-    echo "$hy2_url"
-    echo "$singbox_config"
-    echo "$clash_config"
-}
-
-# Display Results
-display_results() {
-    local ip="$1"
-    local port="$2"
-    local password="$3"
-    local hy2_url="$4"
-    local singbox_config="$5"
-    local clash_config="$6"
-    
-    clear
-    echo ""
-    echo -e "${BLUE_BG}========================================${NORMAL}"
-    echo -e "${BLUE_BG}  🎉 Hysteria2 安装完成！${NORMAL}"
-    echo -e "${BLUE_BG}========================================${NORMAL}"
-    echo ""
-    log_important "主机名: ${HOSTNAME}"
-    log_important "服务器: ${ip}:${port}"
-    log_important "密码: ${password}"
-    log_important "SNI: ${SNI_DOMAIN}"
-    log_important "带宽: 无限制 (自动协商)"
-    echo ""
-    log_success "【Hysteria2 分享链接】"
-    echo "$hy2_url"
-    echo ""
-    log_success "【Sing-box 配置】"
-    echo "$singbox_config"
-    echo ""
-    log_success "【Clash Meta 配置】"
-    echo "$clash_config"
-    echo ""
-    log_important "管理命令:"
-    echo "  启动: systemctl start hy2-${port}"
-    echo "  停止: systemctl stop hy2-${port}"
-    echo "  状态: systemctl status hy2-${port}"
-    echo "  日志: journalctl -u hy2-${port} -f"
-    echo ""
-    log_important "卸载命令:"
-    echo "  systemctl disable --now hy2-${port} && rm /etc/systemd/system/hy2-${port}.service && rm -rf ${INSTALL_DIR}/${port}"
-    echo ""
-}
-
-# Push to Telegram
-push_to_telegram() {
-    local ip="$1"
-    local port="$2"
-    local password="$3"
-    local hy2_url="$4"
-    local singbox_config="$5"
-    local clash_config="$6"
-    
-    local telegram_message=$(cat <<EOF
-🚀 *Hysteria2 服务器部署成功*
-
-📡 *服务器信息*
-• 主机名: \`${HOSTNAME}\`
-• IP: \`${ip}\`
-• 端口: \`${port}\`
-• 密码: \`${password}\`
-• SNI: \`${SNI_DOMAIN}\`
-• 带宽: 无限制 (自动协商)
-
-🔗 *Hysteria2 分享链接*
-\`${hy2_url}\`
-
-📱 *客户端配置*
-**Sing-box JSON:**
-\`\`\`json
-${singbox_config}
-\`\`\`
-
-**Clash Meta YAML:**
-\`\`\`yaml
-${clash_config}
-\`\`\`
-
-⚙️ *性能优化*
-✅ BBR 拥塞控制已启用
-✅ 64MB TCP/UDP 缓冲区
-✅ 100 万连接跟踪
-✅ 32MB QUIC 窗口
-✅ 2048 并发流
-
-📊 *预期性能*
-• YouTube 8K: 流畅播放
-• 延迟: 40-60ms (东京-香港)
-• 并发设备: 20-50 台
-• 峰值带宽: 1500-2500 Mbps
-
-🛠 *管理命令*
-• 启动: \`systemctl start hy2-${port}\`
-• 停止: \`systemctl stop hy2-${port}\`
-• 日志: \`journalctl -u hy2-${port} -f\`
-
-⏰ 部署时间: $(date '+%Y-%m-%d %H:%M:%S')
-EOF
-)
-    
-    log_info "正在推送配置到 Telegram..."
-    send_telegram "$telegram_message"
-}
-
-# Main Function
-main() {
-    # Accept arguments: port, version, ip
-    local port="${1:-auto}"
-    local version="${2:-auto}"
-    local ip="${3:-auto}"
-    
-    clear
-    echo -e "${BLUE_BG}========================================${NORMAL}"
-    echo -e "${BLUE_BG}  Hysteria2 Ultimate Edition${NORMAL}"
-    echo -e "${BLUE_BG}  Version: 7.0.0 - Production Ready${NORMAL}"
-    echo -e "${BLUE_BG}  Hostname: ${HOSTNAME}${NORMAL}"
-    echo -e "${BLUE_BG}========================================${NORMAL}"
-    echo ""
-    
-    # Pre-checks
-    check_root
-    check_grep
-    detect_arch
-    install_packages
-    
-    # Get version
-    if [[ "$version" == "auto" ]]; then
-        version=$(get_latest_version)
-    fi
-    log_info "Target version: $version"
-    
-    # Download core
-    download_hy2_core "$version"
-    
-    # Get IP
-    if [[ "$ip" == "auto" ]]; then
-        ip=$(get_server_ip)
-    fi
-    log_info "Server IP: $ip"
-    
-    # Get port
-    if [[ "$port" == "auto" ]]; then
-        port=$((RANDOM % 50000 + 10000))
-        log_info "Generated random port: $port"
-    else
-        log_info "Using specified port: $port"
-    fi
-    
-    # Check port conflict
-    if ! check_port_conflict "$port"; then
-        log_error "Port $port is not available. Please choose another port."
-        exit 1
-    fi
-    
-    # Generate password
-    password=$(openssl rand -base64 16)
-    log_info "Generated password: $password"
-    
-    # Generate certificate
-    generate_cert "$port"
-    
-    # Create configuration
-    create_config "$port" "$password"
-    
-    # Apply BBR optimization
-    apply_bbr
-    
-    # Create and start service
-    create_service "$port"
-    
-    # Generate share links
-    local output=$(generate_links "$ip" "$port" "$password")
-    local hy2_url=$(echo "$output" | sed -n '1p')
-    local singbox_config=$(echo "$output" | sed -n '2p')
-    local clash_config=$(echo "$output" | sed -n '3p')
-    
-    # Display results
-    display_results "$ip" "$port" "$password" "$hy2_url" "$singbox_config" "$clash_config"
-    
-    # Push to Telegram
-    push_to_telegram "$ip" "$port" "$password" "$hy2_url" "$singbox_config" "$clash_config"
-    
-    echo ""
-    log_success "========================================${NORMAL}"
-    log_success "✅ 部署完成！配置已保存到 ${INSTALL_DIR}/${port}/client-config.txt"
-    log_success "========================================${NORMAL}"
-    echo ""
-}
-
-# Execute
-main "$@"
+echo ""
+echo -e "${CYAN_BG}========================================${NORMAL}"
+echo -e "${CYAN_BG}  ⚡ Hysteria2 Gigabit Edition ⚡${NORMAL}"
+echo -e "${CYAN_BG}========================================${NORMAL}"
+echo ""
+echo -e "${WHITE_BG}Connection Information:${NORMAL}"
+echo "  Server: ${ip//[\[\]]/}"
+echo "  Port: $port"
+echo "  Password: $password"
+echo "  SNI: icloud.cdn-apple.com (Apple CDN)"
+echo "  Bandwidth: 1000 Mbps / 1000 Mbps"
+echo ""
+echo -e "${GREEN_BG}Hysteria2 URL:${NORMAL}"
+echo "$hy2_url"
+echo ""
+echo -e "${GREEN_BG}JSON Config (sing-box):${NORMAL}"
+echo "$json_config"
+echo ""
+echo -e "${GREEN_BG}Clash Meta Config:${NORMAL}"
+echo "$clash_config"
+echo ""
+echo -e "${YELLOW_BG}Client Configuration:${NORMAL}"
+echo "  1. Self-signed certificate: Enable 'Skip Certificate Verification'"
+echo "  2. SNI: icloud.cdn-apple.com"
+echo "  3. Bandwidth: up=1000Mbps, down=1000Mbps"
+echo "  4. Disguised as Apple iCloud CDN traffic"
+echo ""
+echo -e "${CYAN_BG}Performance Features:${NORMAL}"
+echo "  ✓ 1 Gbps bandwidth configuration"
+echo "  ✓ BBR congestion control"
+echo "  ✓ 64 MB network buffers"
+echo "  ✓ Apple CDN traffic disguise"
+echo "  ✓ Ultra-low latency QUIC optimization"
+echo ""
+echo -e "${GREEN_BG}Service hy2-${port} has been started successfully!${NORMAL}"
+echo -e "${CYAN_BG}========================================${NORMAL}"
