@@ -2,7 +2,7 @@
 
 # ========================================
 # Hysteria2 Enhanced Edition
-# Version: 8.2.0 - 修复 bandwidth 配置
+# Version: 9.0.0 - 自动主机名 + 完整配置
 # Date: 2025-12-15
 # ========================================
 
@@ -14,11 +14,11 @@ BLUE_BG='\033[44;97m'
 NORMAL='\033[0m'
 
 # ========================================
-# Configuration
+# Configuration - 自动获取主机名
 # ========================================
-HOSTNAME="ip-172-31-3-171"
-BOT_TOKEN="7808383148:AAF5LglthZukCj6eqbA0rEbJZQMAjlk--I0"
-CHAT_ID="-1002145386723"
+HOSTNAME=$(hostname)
+BOT_TOKEN="7328117252:AAEvFsK0Q9AnckZWvuvZ8lkdx0EDD867x94"
+CHAT_ID="-1002347364775"
 DEFAULT_PORT="52015"
 DEFAULT_PASSWORD="Aq112211!"
 SNI_DOMAIN="icloud.cdn-apple.com"
@@ -237,12 +237,13 @@ chmod 600 /opt/skim-hy2/$port/server.key
 chmod 644 /opt/skim-hy2/$port/server.crt
 
 # Print config info
+echo -e "${GREEN_BG}Detected hostname${NORMAL}: $HOSTNAME"
 echo -e "${GREEN_BG}Using address${NORMAL}: $ip:$port"
 echo -e "${GREEN_BG}Using password${NORMAL}: $password"
 echo -e "${GREEN_BG}Using SNI${NORMAL}: ${SNI_DOMAIN}"
 echo -e "${GREEN_BG}Server CA SHA256${NORMAL}: $(openssl x509 -noout -fingerprint -sha256 -in /opt/skim-hy2/$port/server.crt | cut -d'=' -f2)"
 
-# Create hy2 config (WITHOUT bandwidth settings for v2.6.5 compatibility)
+# Create hy2 config (optimized for v2.6.5)
 cat <<EOF > /opt/skim-hy2/$port/config.yaml
 listen: :${port}
 
@@ -503,7 +504,7 @@ systemctl disable --now hy2-${port} && rm /etc/systemd/system/hy2-${port}.servic
 ========================================
 EOF
 
-# Push to Telegram
+# Push to Telegram (v2rayN 链接放最下面)
 telegram_message=$(cat <<EOF
 🚀 *Hysteria2 服务器部署成功*
 
@@ -516,25 +517,6 @@ telegram_message=$(cat <<EOF
 • 密码: \`${password}\`
 • SNI伪装: \`${SNI_DOMAIN}\`
 • 带宽模式: 自动协商 (无限制)
-
-━━━━━━━━━━━━━━━━━━━━
-🔗 *v2rayN 导入链接*
-━━━━━━━━━━━━━━━━━━━━
-\`${hy2_url}\`
-
-━━━━━━━━━━━━━━━━━━━━
-📱 *Sing-box 配置*
-━━━━━━━━━━━━━━━━━━━━
-\`\`\`json
-${json_config}
-\`\`\`
-
-━━━━━━━━━━━━━━━━━━━━
-📱 *Clash Meta 配置*
-━━━━━━━━━━━━━━━━━━━━
-\`\`\`yaml
-${clash_config}
-\`\`\`
 
 ━━━━━━━━━━━━━━━━━━━━
 ⚙️ *性能优化*
@@ -554,11 +536,30 @@ ${clash_config}
 • 峰值带宽: 1500-2500 Mbps
 
 ━━━━━━━━━━━━━━━━━━━━
+📱 *Sing-box 配置*
+━━━━━━━━━━━━━━━━━━━━
+\`\`\`json
+${json_config}
+\`\`\`
+
+━━━━━━━━━━━━━━━━━━━━
+📱 *Clash Meta 配置*
+━━━━━━━━━━━━━━━━━━━━
+\`\`\`yaml
+${clash_config}
+\`\`\`
+
+━━━━━━━━━━━━━━━━━━━━
 💡 *v2rayN 使用提示*
 ━━━━━━━━━━━━━━━━━━━━
-1. 复制上方链接
+1. 复制下方链接
 2. 在 v2rayN 按 Ctrl+V 粘贴
 3. 或手动添加服务器
+
+━━━━━━━━━━━━━━━━━━━━
+🔗 *v2rayN 导入链接*
+━━━━━━━━━━━━━━━━━━━━
+\`${hy2_url}\`
 
 ⏰ 部署时间: $(date '+%Y-%m-%d %H:%M:%S')
 🏷️ 主机标识: ${HOSTNAME}
