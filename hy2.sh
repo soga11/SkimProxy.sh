@@ -32,7 +32,6 @@ get_server_region() {
   elif [ -n "$country" ]; then
     echo "$country"
   else
-    # 备用方案：通过 CloudFlare 获取
     local cf_colo=$(curl -s --max-time 5 https://www.cloudflare.com/cdn-cgi/trace | grep -oP '(?<=colo=)[A-Z]{3}')
     if [ -n "$cf_colo" ]; then
       echo "$cf_colo"
@@ -51,7 +50,7 @@ DEFAULT_PASSWORD="Aq112211!"
 SNI_DOMAIN="icloud.cdn-apple.com"
 
 # Check root
-if [[ $EEID -ne 0 ]]; then
+if [[ $EUID -ne 0 ]]; then
   echo -e "${RED_BG}This script requires root privileges.${NORMAL} Please run as root or use sudo."
   exit 1
 fi
@@ -200,19 +199,16 @@ fi
 
 # Get IPv4 and IPv6 addresses
 get_ip_addresses() {
-  # 获取 IPv4
   ipv4=$(curl -s --max-time 5 -4 https://api.ipify.org 2>/dev/null)
   if [ -z "$ipv4" ]; then
     ipv4=$(curl -s --max-time 5 https://cloudflare.com/cdn-cgi/trace -4 | grep -oP '(?<=ip=).*' 2>/dev/null)
   fi
   
-  # 获取 IPv6
   ipv6=$(curl -s --max-time 5 -6 https://api64.ipify.org 2>/dev/null)
   if [ -z "$ipv6" ]; then
     ipv6=$(curl -s --max-time 5 https://cloudflare.com/cdn-cgi/trace -6 | grep -oP '(?<=ip=).*' 2>/dev/null)
   fi
   
-  # 如果没有指定 IP 参数，使用自动检测的 IP
   if [ -z "$3" ] || [ "$3" = "auto" ]; then
     if [ -n "$ipv4" ]; then
       ip="$ipv4"
@@ -231,7 +227,6 @@ get_ip_addresses() {
     echo -e "${GREEN_BG}[Network] Using specified IP${NORMAL}: $ip"
   fi
   
-  # 如果 IPv4 和 IPv6 都没有，要求手动输入
   if [ -z "$ip" ]; then
     echo -e "${YELLOW_BG}Unable to detect IP automatically. Please enter manually:${NORMAL}"
     read -p "Server IP: " ip
@@ -254,7 +249,7 @@ fi
 # Make config folder
 mkdir -p /opt/skim-hy2/$port
 
-# Self-sign certificate (Apple domain)
+# Self-sign certificate
 cat <<EOF > /opt/skim-hy2/$port/openssl.conf
 [ req ]
 default_bits           = 2048
@@ -291,15 +286,15 @@ chmod 644 /opt/skim-hy2/$port/server.crt
 # Print config info
 echo -e "${GREEN_BG}Detected hostname${NORMAL}: $HOSTNAME"
 echo -e "${GREEN_BG}Detected region${NORMAL}: $REGION"
-echo -e "${GREEN_BG}Using address (IPv4)${NORMAL}: $ip:$port"
+echo -e "${GREEN_BG}Using address IPv4${NORMAL}: $ip:$port"
 if [ -n "$ipv6" ]; then
-  echo -e "${CYAN_BG}Using address (IPv6)${NORMAL}: [$ipv6]:$port"
+  echo -e "${CYAN_BG}Using address IPv6${NORMAL}: [$ipv6]:$port"
 fi
 echo -e "${GREEN_BG}Using password${NORMAL}: $password"
 echo -e "${GREEN_BG}Using SNI${NORMAL}: ${SNI_DOMAIN}"
 echo -e "${GREEN_BG}Server CA SHA256${NORMAL}: $(openssl x509 -noout -fingerprint -sha256 -in /opt/skim-hy2/$port/server.crt | cut -d'=' -f2)"
 
-# Create hy2 config (optimized for v2.6.5)
+# Create hy2 config
 cat <<EOF > /opt/skim-hy2/$port/config.yaml
 listen: :${port}
 
@@ -397,7 +392,6 @@ EOF
 EOF
   fi
   
-  echo -e "${GREEN_BG
   echo -e "${GREEN_BG}[Optimization] Network optimization applied${NORMAL}"
 }
 
@@ -431,7 +425,6 @@ systemctl daemon-reload
 systemctl enable hy2-${port} > /dev/null 2>&1
 systemctl restart hy2-${port}
 
-# Wait and check service status
 sleep 3
 
 if systemctl is-active --quiet hy2-${port}; then
@@ -446,11 +439,10 @@ else
   exit 1
 fi
 
-# Generate share links (IPv4)
+# Generate share links
 hy2_url_v4="hysteria2://$(urlencode "$password")@${ip}:${port}/?insecure=1&sni=${SNI_DOMAIN}&alpn=h3#$(urlencode "${HOSTNAME}-HY2-${port}")"
 hy2_url_compat_v4="hy2://$(urlencode "$password")@${ip}:${port}/?insecure=1&sni=${SNI_DOMAIN}#$(urlencode "${HOSTNAME}-HY2-${port}")"
 
-# Generate share links (IPv6) if available
 if [ -n "$ipv6" ]; then
   hy2_url_v6="hysteria2://$(urlencode "$password")@[${ipv6}]:${port}/?insecure=1&sni=${SNI_DOMAIN}&alpn=h3#$(urlencode "${HOSTNAME}-HY2-${port}-IPv6")"
   hy2_url_compat_v6="hy2://$(urlencode "$password")@[${ipv6}]:${port}/?insecure=1&sni=${SNI_DOMAIN}#$(urlencode "${HOSTNAME}-HY2-${port}-IPv6")"
@@ -473,7 +465,6 @@ json_config=$(cat <<EOF
 EOF
 )
 
-# Generate IPv6 JSON config if available
 if [ -n "$ipv6" ]; then
   json_config_v6=$(cat <<EOF
 {
@@ -506,7 +497,6 @@ clash_config=$(cat <<EOF
 EOF
 )
 
-# Generate IPv6 Clash config if available
 if [ -n "$ipv6" ]; then
   clash_config_v6=$(cat <<EOF
 - name: ${HOSTNAME}-HY2-${port}-IPv6
@@ -522,7 +512,7 @@ EOF
 )
 fi
 
-# Display results (v2rayN 链接放最下面)
+# Display results
 echo ""
 echo -e "${BLUE_BG}========================================${NORMAL}"
 echo -e "${BLUE_BG}  🎉 Hysteria2 安装成功${NORMAL}"
@@ -530,27 +520,27 @@ echo -e "${BLUE_BG}========================================${NORMAL}"
 echo ""
 echo -e "${GREEN_BG}主机名:${NORMAL} ${HOSTNAME}"
 echo -e "${GREEN_BG}地区:${NORMAL} ${REGION}"
-echo -e "${GREEN_BG}服务器 (IPv4):${NORMAL} ${ip}:${port}"
+echo -e "${GREEN_BG}服务器 IPv4:${NORMAL} ${ip}:${port}"
 if [ -n "$ipv6" ]; then
-  echo -e "${CYAN_BG}服务器 (IPv6):${NORMAL} [${ipv6}]:${port}"
+  echo -e "${CYAN_BG}服务器 IPv6:${NORMAL} [${ipv6}]:${port}"
 fi
 echo -e "${GREEN_BG}密码:${NORMAL} ${password}"
 echo -e "${GREEN_BG}SNI:${NORMAL} ${SNI_DOMAIN}"
-echo -e "${GREEN_BG}带宽:${NORMAL} 自动协商 (无限制)"
+echo -e "${GREEN_BG}带宽:${NORMAL} 自动协商 无限制"
 echo ""
-echo -e "${GREEN_BG}Sing-box 配置 (IPv4):${NORMAL}"
+echo -e "${GREEN_BG}Sing-box 配置 IPv4:${NORMAL}"
 echo "$json_config"
 echo ""
 if [ -n "$ipv6" ]; then
-  echo -e "${CYAN_BG}Sing-box 配置 (IPv6):${NORMAL}"
+  echo -e "${CYAN_BG}Sing-box 配置 IPv6:${NORMAL}"
   echo "$json_config_v6"
   echo ""
 fi
-echo -e "${GREEN_BG}Clash Meta 配置 (IPv4):${NORMAL}"
+echo -e "${GREEN_BG}Clash Meta 配置 IPv4:${NORMAL}"
 echo "$clash_config"
 echo ""
 if [ -n "$ipv6" ]; then
-  echo -e "${CYAN_BG}Clash Meta 配置 (IPv6):${NORMAL}"
+  echo -e "${CYAN_BG}Clash Meta 配置 IPv6:${NORMAL}"
   echo "$clash_config_v6"
   echo ""
 fi
@@ -561,11 +551,11 @@ echo "  状态: systemctl status hy2-${port}"
 echo "  日志: journalctl -u hy2-${port} -f"
 echo "  卸载: systemctl disable --now hy2-${port} && rm /etc/systemd/system/hy2-${port}.service && rm -rf /opt/skim-hy2/${port} && rm -f /var/log/hy2-${port}.log"
 echo ""
-echo -e "${GREEN_BG}v2rayN 专用链接 (IPv4):${NORMAL}"
+echo -e "${GREEN_BG}v2rayN 链接 IPv4:${NORMAL}"
 echo "$hy2_url_v4"
 echo ""
 if [ -n "$ipv6" ]; then
-  echo -e "${CYAN_BG}v2rayN 专用链接 (IPv6):${NORMAL}"
+  echo -e "${CYAN_BG}v2rayN 链接 IPv6:${NORMAL}"
   echo "$hy2_url_v6"
   echo ""
 fi
@@ -576,23 +566,23 @@ cat > /opt/skim-hy2/$port/client-config.txt <<EOF
 Hysteria2 客户端配置
 主机名: ${HOSTNAME}
 地区: ${REGION}
-服务器 (IPv4): ${ip}:${port}
-$([ -n "$ipv6" ] && echo "服务器 (IPv6): [${ipv6}]:${port}")
+服务器 IPv4: ${ip}:${port}
+$([ -n "$ipv6" ] && echo "服务器 IPv6: [${ipv6}]:${port}")
 密码: ${password}
 SNI: ${SNI_DOMAIN}
-带宽: 自动协商 (无限制)
+带宽: 自动协商 无限制
 ========================================
 
-【Sing-box 配置 - IPv4】
+【Sing-box 配置 IPv4】
 ${json_config}
 
-$([ -n "$ipv6" ] && echo "【Sing-box 配置 - IPv6】
+$([ -n "$ipv6" ] && echo "【Sing-box 配置 IPv6】
 ${json_config_v6}")
 
-【Clash Meta 配置 - IPv4】
+【Clash Meta 配置 IPv4】
 ${clash_config}
 
-$([ -n "$ipv6" ] && echo "【Clash Meta 配置 - IPv6】
+$([ -n "$ipv6" ] && echo "【Clash Meta 配置 IPv6】
 ${clash_config_v6}")
 
 ========================================
@@ -618,21 +608,21 @@ v2rayN 导入方法:
 - 卸载: systemctl disable --now hy2-${port} && rm /etc/systemd/system/hy2-${port}.service && rm -rf /opt/skim-hy2/${port} && rm -f /var/log/hy2-${port}.log
 
 ========================================
-【v2rayN 链接 - IPv4】
+【v2rayN 链接 IPv4】
 ${hy2_url_v4}
 
-$([ -n "$ipv6" ] && echo "【v2rayN 链接 - IPv6】
+$([ -n "$ipv6" ] && echo "【v2rayN 链接 IPv6】
 ${hy2_url_v6}")
 
-【兼容格式链接 - IPv4】
+【兼容格式链接 IPv4】
 ${hy2_url_compat_v4}
 
-$([ -n "$ipv6" ] && echo "【兼容格式链接 - IPv6】
+$([ -n "$ipv6" ] && echo "【兼容格式链接 IPv6】
 ${hy2_url_compat_v6}")
 ========================================
 EOF
 
-# Push to Telegram (v2rayN 链接放最下面)
+# Push to Telegram
 telegram_message=$(cat <<EOF
 🚀 *Hysteria2 服务器部署成功*
 
@@ -646,7 +636,7 @@ telegram_message=$(cat <<EOF
 • 端口: \`${port}\`
 • 密码: \`${password}\`
 • SNI伪装: \`${SNI_DOMAIN}\`
-• 带宽模式: 自动协商 (无限制)
+• 带宽模式: 自动协商 无限制
 
 ━━━━━━━━━━━━━━━━━━━━
 ⚙️ *性能优化*
@@ -658,28 +648,28 @@ telegram_message=$(cat <<EOF
 ✅ 2048 并发流
 
 ━━━━━━━━━━━━━━━━━━━━
-📱 *Sing-box 配置 (IPv4)*
+📱 *Sing-box 配置 IPv4*
 ━━━━━━━━━━━━━━━━━━━━
 \`\`\`json
 ${json_config}
 \`\`\`
 $([ -n "$ipv6" ] && echo "
 ━━━━━━━━━━━━━━━━━━━━
-📱 *Sing-box 配置 (IPv6)*
+📱 *Sing-box 配置 IPv6*
 ━━━━━━━━━━━━━━━━━━━━
 \`\`\`json
 ${json_config_v6}
 \`\`\`")
 
 ━━━━━━━━━━━━━━━━━━━━
-📱 *Clash Meta 配置 (IPv4)*
+📱 *Clash Meta 配置 IPv4*
 ━━━━━━━━━━━━━━━━━━━━
 \`\`\`yaml
 ${clash_config}
 \`\`\`
 $([ -n "$ipv6" ] && echo "
 ━━━━━━━━━━━━━━━━━━━━
-📱 *Clash Meta 配置 (IPv6)*
+📱 *Clash Meta 配置 IPv6*
 ━━━━━━━━━━━━━━━━━━━━
 \`\`\`yaml
 ${clash_config_v6}
@@ -693,12 +683,12 @@ ${clash_config_v6}
 3. 或手动添加服务器
 
 ━━━━━━━━━━━━━━━━━━━━
-🔗 *v2rayN 导入链接 (IPv4)*
+🔗 *v2rayN 导入链接 IPv4*
 ━━━━━━━━━━━━━━━━━━━━
 \`${hy2_url_v4}\`
 $([ -n "$ipv6" ] && echo "
 ━━━━━━━━━━━━━━━━━━━━
-🔗 *v2rayN 导入链接 (IPv6)*
+🔗 *v2rayN 导入链接 IPv6*
 ━━━━━━━━━━━━━━━━━━━━
 \`${hy2_url_v6}\`")
 
