@@ -2,7 +2,7 @@
 
 # ========================================
 # Hysteria2 Enhanced Edition
-# Version: 10.0.0 - IPv6 支持 + 地区识别
+# Version: 10.1.0 - UDP 优化 + 换端口功能
 # Date: 2025-12-15
 # ========================================
 
@@ -327,16 +327,16 @@ masquerade:
     rewriteHost: true
 EOF
 
-# Apply BBR optimization
-apply_bbr() {
+# Apply BBR and UDP optimization
+apply_network_optimization() {
   current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
   
-  if [[ "$current_cc" == "bbr" ]]; then
-    echo -e "${GREEN_BG}[Optimization] BBR is already enabled${NORMAL}"
+  if [[ "$current_cc" == "bbr" ]] && grep -q "Hysteria2 UDP Performance" /etc/sysctl.conf 2>/dev/null; then
+    echo -e "${GREEN_BG}[Optimization] BBR and UDP optimization already applied${NORMAL}"
     return 0
   fi
   
-  echo -e "${GREEN_BG}[Optimization] Applying BBR + network optimizations...${NORMAL}"
+  echo -e "${GREEN_BG}[Optimization] Applying BBR + UDP performance optimizations...${NORMAL}"
   
   if ! grep -q "Hysteria2 Network Optimization" /etc/sysctl.conf 2>/dev/null; then
     cat >> /etc/sysctl.conf <<EOF
@@ -351,18 +351,13 @@ apply_bbr() {
 net.core.default_qdisc=fq_pie
 net.ipv4.tcp_congestion_control=bbr
 
-# Network Buffer (64MB)
+# TCP Network Buffer (64MB)
 net.core.rmem_max=67108864
 net.core.wmem_max=67108864
 net.core.rmem_default=16777216
 net.core.wmem_default=16777216
 net.ipv4.tcp_rmem=4096 16777216 67108864
 net.ipv4.tcp_wmem=4096 16777216 67108864
-
-# UDP Buffer
-net.core.netdev_max_backlog=16384
-net.ipv4.udp_rmem_min=8192
-net.ipv4.udp_wmem_min=8192
 
 # Connection Tracking
 net.netfilter.nf_conntrack_max=1000000
@@ -376,6 +371,43 @@ net.ipv4.tcp_fin_timeout=15
 
 # File Descriptors
 fs.file-max=1048576
+
+# ============================================
+# Hysteria2 UDP Performance Optimization
+# ============================================
+
+# UDP Buffer Optimization (64MB)
+net.core.rmem_default=26214400
+net.core.wmem_default=26214400
+
+# UDP Memory Optimization
+net.ipv4.udp_mem=8388608 12582912 16777216
+net.ipv4.udp_rmem_min=16384
+net.ipv4.udp_wmem_min=16384
+
+# Network Queue Optimization
+net.core.netdev_max_backlog=30000
+net.core.netdev_budget=600
+net.core.netdev_budget_usecs=8000
+
+# Port Range Optimization
+net.ipv4.ip_local_port_range=10000 65535
+
+# TCP/IP Stack Optimization
+net.ipv4.tcp_timestamps=1
+net.ipv4.tcp_window_scaling=1
+net.ipv4.tcp_sack=1
+net.ipv4.tcp_no_metrics_save=1
+
+# QUIC Protocol Optimization
+net.ipv4.tcp_low_latency=1
+net.ipv4.tcp_frto=2
+
+# Security
+net.ipv4.tcp_syncookies=1
+net.ipv4.tcp_syn_retries=2
+net.ipv4.tcp_synack_retries=2
+net.ipv4.tcp_max_syn_backlog=8192
 
 EOF
   fi
@@ -393,9 +425,14 @@ EOF
   fi
   
   echo -e "${GREEN_BG}[Optimization] Network optimization applied${NORMAL}"
+  echo -e "${CYAN_BG}  ✅ BBR 拥塞控制${NORMAL}"
+  echo -e "${CYAN_BG}  ✅ UDP 缓冲区 64MB${NORMAL}"
+  echo -e "${CYAN_BG}  ✅ 网络队列 30000${NORMAL}"
+  echo -e "${CYAN_BG}  ✅ 端口范围 10000-65535${NORMAL}"
+  echo -e "${CYAN_BG}  ✅ QUIC 低延迟优化${NORMAL}"
 }
 
-apply_bbr
+apply_network_optimization
 
 # Create system service
 echo -e "${GREEN_BG}Installing system service...${NORMAL}"
@@ -549,6 +586,7 @@ echo "  启动: systemctl start hy2-${port}"
 echo "  停止: systemctl stop hy2-${port}"
 echo "  状态: systemctl status hy2-${port}"
 echo "  日志: journalctl -u hy2-${port} -f"
+echo "  换端口: bash hy2.sh 新端口号  (例如: bash hy2.sh 12345)"
 echo "  卸载: systemctl disable --now hy2-${port} && rm /etc/systemd/system/hy2-${port}.service && rm -rf /opt/skim-hy2/${port} && rm -f /var/log/hy2-${port}.log"
 echo ""
 echo -e "${GREEN_BG}v2rayN 链接 IPv4:${NORMAL}"
@@ -605,6 +643,7 @@ v2rayN 导入方法:
 - 停止: systemctl stop hy2-${port}
 - 状态: systemctl status hy2-${port}
 - 日志: journalctl -u hy2-${port} -f
+- 换端口: bash hy2.sh 新端口号  (例如: bash hy2.sh 12345)
 - 卸载: systemctl disable --now hy2-${port} && rm /etc/systemd/system/hy2-${port}.service && rm -rf /opt/skim-hy2/${port} && rm -f /var/log/hy2-${port}.log
 
 ========================================
@@ -642,10 +681,13 @@ telegram_message=$(cat <<EOF
 ⚙️ *性能优化*
 ━━━━━━━━━━━━━━━━━━━━
 ✅ BBR 拥塞控制
-✅ 64MB 网络缓冲区
+✅ 64MB TCP 缓冲区
+✅ 64MB UDP 缓冲区
 ✅ 100万 连接追踪
 ✅ 32MB QUIC 窗口
 ✅ 2048 并发流
+✅ 30000 网络队列
+✅ QUIC 低延迟优化
 
 ━━━━━━━━━━━━━━━━━━━━
 📱 *Sing-box 配置 IPv4*
@@ -676,6 +718,11 @@ ${clash_config_v6}
 \`\`\`")
 
 ━━━━━━━━━━━━━━━━━━━━
+💡 *v2rayN 使用提示*
+━━━━━━━━━━━━━━━━━━━━
+1. 复制下方链接
+2. 在 v2rayN 按 Ctrl+V 粘贴
+3. 或手动添加服务器
 
 ━━━━━━━━━━━━━━━━━━━━
 🔗 *v2rayN 导入链接 IPv4*
