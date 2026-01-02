@@ -2,8 +2,8 @@
 
 # ========================================
 # Hysteria2 Enhanced Edition
-# Version: 10.1.0 - UDP 优化 + 换端口功能
-# Date: 2025-12-15
+# Version: 10.2.0 - IPv6 双栈优化版
+# Date: 2026-01-02
 # ========================================
 
 GREEN_BG='\033[42;30m'
@@ -12,10 +12,11 @@ YELLOW_BG='\033[43;30m'
 WHITE_BG='\033[47;30m'
 BLUE_BG='\033[44;97m'
 CYAN_BG='\033[46;30m'
+MAGENTA_BG='\033[45;97m'
 NORMAL='\033[0m'
 
 # ========================================
-# Configuration - 自动获取主机名和地区
+# Configuration
 # ========================================
 HOSTNAME=$(hostname)
 
@@ -64,7 +65,7 @@ case "$cpu_arch" in
   *) echo -e "${RED_BG}Unsupported architecture: $cpu_arch${NORMAL}"; exit 1 ;;
 esac
 
-# Install GNU grep if BusyBox ver grep found
+# Install GNU grep if BusyBox grep found
 is_busybox_grep() {
   grep --version 2>&1 | grep -q BusyBox
 }
@@ -199,28 +200,46 @@ fi
 
 # Get IPv4 and IPv6 addresses
 get_ip_addresses() {
+  echo -e "${BLUE_BG}[Network] Detecting IP addresses...${NORMAL}"
+  
+  # 检测 IPv4
   ipv4=$(curl -s --max-time 5 -4 https://api.ipify.org 2>/dev/null)
   if [ -z "$ipv4" ]; then
     ipv4=$(curl -s --max-time 5 https://cloudflare.com/cdn-cgi/trace -4 | grep -oP '(?<=ip=).*' 2>/dev/null)
   fi
   
+  # 检测 IPv6
   ipv6=$(curl -s --max-time 5 -6 https://api64.ipify.org 2>/dev/null)
   if [ -z "$ipv6" ]; then
     ipv6=$(curl -s --max-time 5 https://cloudflare.com/cdn-cgi/trace -6 | grep -oP '(?<=ip=).*' 2>/dev/null)
   fi
   
+  # 测试 IPv6 连通性
+  has_ipv6=false
+  if [ -n "$ipv6" ]; then
+    if ping6 -c 1 -W 2 2001:4860:4860::8888 >/dev/null 2>&1; then
+      has_ipv6=true
+      echo -e "${CYAN_BG}[Network] ✅ IPv6 connectivity verified${NORMAL}: $ipv6"
+    else
+      echo -e "${YELLOW_BG}[Network] ⚠️  IPv6 detected but not routable${NORMAL}: $ipv6"
+      echo -e "${YELLOW_BG}           IPv6 support will be disabled${NORMAL}"
+      ipv6=""
+    fi
+  fi
+  
+  # 显示检测结果
+  if [ -n "$ipv4" ]; then
+    echo -e "${GREEN_BG}[Network] ✅ IPv4${NORMAL}: $ipv4"
+  else
+    echo -e "${YELLOW_BG}[Network] ⚠️  IPv4 not detected${NORMAL}"
+  fi
+  
   if [ -z "$3" ] || [ "$3" = "auto" ]; then
     if [ -n "$ipv4" ]; then
       ip="$ipv4"
-      echo -e "${GREEN_BG}[Network] Detected IPv4${NORMAL}: $ipv4"
     else
-      echo -e "${YELLOW_BG}[Network] IPv4 not detected${NORMAL}"
-    fi
-    
-    if [ -n "$ipv6" ]; then
-      echo -e "${CYAN_BG}[Network] Detected IPv6${NORMAL}: $ipv6"
-    else
-      echo -e "${YELLOW_BG}[Network] IPv6 not detected${NORMAL}"
+      echo -e "${YELLOW_BG}Unable to detect IP automatically. Please enter manually:${NORMAL}"
+      read -p "Server IP: " ip
     fi
   else
     ip="$3"
@@ -228,8 +247,8 @@ get_ip_addresses() {
   fi
   
   if [ -z "$ip" ]; then
-    echo -e "${YELLOW_BG}Unable to detect IP automatically. Please enter manually:${NORMAL}"
-    read -p "Server IP: " ip
+    echo -e "${RED_BG}[ERROR] No IP address available${NORMAL}"
+    exit 1
   fi
 }
 
@@ -284,19 +303,34 @@ chmod 600 /opt/skim-hy2/$port/server.key
 chmod 644 /opt/skim-hy2/$port/server.crt
 
 # Print config info
-echo -e "${GREEN_BG}Detected hostname${NORMAL}: $HOSTNAME"
-echo -e "${GREEN_BG}Detected region${NORMAL}: $REGION"
-echo -e "${GREEN_BG}Using address IPv4${NORMAL}: $ip:$port"
-if [ -n "$ipv6" ]; then
-  echo -e "${CYAN_BG}Using address IPv6${NORMAL}: [$ipv6]:$port"
+echo ""
+echo -e "${BLUE_BG}========================================${NORMAL}"
+echo -e "${BLUE_BG}  📡 Server Configuration${NORMAL}"
+echo -e "${BLUE_BG}========================================${NORMAL}"
+echo -e "${GREEN_BG}Hostname${NORMAL}: $HOSTNAME"
+echo -e "${GREEN_BG}Region${NORMAL}: $REGION"
+echo -e "${GREEN_BG}IPv4 Address${NORMAL}: $ip:$port"
+if [ "$has_ipv6" = true ]; then
+  echo -e "${CYAN_BG}IPv6 Address${NORMAL}: [$ipv6]:$port ${GREEN_BG}(Dual Stack Enabled)${NORMAL}"
 fi
-echo -e "${GREEN_BG}Using password${NORMAL}: $password"
-echo -e "${GREEN_BG}Using SNI${NORMAL}: ${SNI_DOMAIN}"
-echo -e "${GREEN_BG}Server CA SHA256${NORMAL}: $(openssl x509 -noout -fingerprint -sha256 -in /opt/skim-hy2/$port/server.crt | cut -d'=' -f2)"
+echo -e "${GREEN_BG}Password${NORMAL}: $password"
+echo -e "${GREEN_BG}SNI${NORMAL}: ${SNI_DOMAIN}"
+echo -e "${GREEN_BG}CA SHA256${NORMAL}: $(openssl x509 -noout -fingerprint -sha256 -in /opt/skim-hy2/$port/server.crt | cut -d'=' -f2)"
+echo ""
 
-# Create hy2 config
+# Create hy2 config with IPv6 dual-stack support
+if [ "$has_ipv6" = true ]; then
+  # IPv6 双栈模式：监听 [::] 可以同时处理 IPv4 和 IPv6
+  listen_addr="[::]:${port}"
+  echo -e "${CYAN_BG}[Config] Enabling IPv6 dual-stack mode${NORMAL}"
+else
+  # 仅 IPv4 模式
+  listen_addr=":${port}"
+  echo -e "${GREEN_BG}[Config] Using IPv4-only mode${NORMAL}"
+fi
+
 cat <<EOF > /opt/skim-hy2/$port/config.yaml
-listen: :${port}
+listen: ${listen_addr}
 
 tls:
   cert: /opt/skim-hy2/${port}/server.crt
@@ -327,7 +361,7 @@ masquerade:
     rewriteHost: true
 EOF
 
-# Apply BBR and UDP optimization
+# Apply BBR and UDP optimization with IPv6 support
 apply_network_optimization() {
   current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
   
@@ -336,7 +370,7 @@ apply_network_optimization() {
     return 0
   fi
   
-  echo -e "${GREEN_BG}[Optimization] Applying BBR + UDP performance optimizations...${NORMAL}"
+  echo -e "${GREEN_BG}[Optimization] Applying BBR + UDP + IPv6 performance optimizations...${NORMAL}"
   
   if ! grep -q "Hysteria2 Network Optimization" /etc/sysctl.conf 2>/dev/null; then
     cat >> /etc/sysctl.conf <<EOF
@@ -345,6 +379,7 @@ apply_network_optimization() {
 # Hysteria2 Network Optimization
 # Hostname: ${HOSTNAME}
 # Date: $(date '+%Y-%m-%d %H:%M:%S')
+# IPv6 Support: ${has_ipv6}
 # ============================================
 
 # BBR Congestion Control
@@ -409,7 +444,38 @@ net.ipv4.tcp_syn_retries=2
 net.ipv4.tcp_synack_retries=2
 net.ipv4.tcp_max_syn_backlog=8192
 
+# ============================================
+# IPv6 Optimization (if available)
+# ============================================
 EOF
+    
+    if [ "$has_ipv6" = true ]; then
+      cat >> /etc/sysctl.conf <<EOF
+# IPv6 Enabled
+net.ipv6.conf.all.forwarding=1
+net.ipv6.conf.default.forwarding=1
+net.ipv6.conf.all.accept_ra=2
+net.ipv6.conf.default.accept_ra=2
+net.ipv6.conf.all.accept_redirects=0
+net.ipv6.conf.default.accept_redirects=0
+net.ipv6.conf.all.autoconf=1
+net.ipv6.conf.default.autoconf=1
+
+# IPv6 TCP/UDP Buffer
+net.ipv6.route.max_size=4096
+net.ipv6.neigh.default.gc_thresh1=1024
+net.ipv6.neigh.default.gc_thresh2=2048
+net.ipv6.neigh.default.gc_thresh3=4096
+
+EOF
+    else
+      cat >> /etc/sysctl.conf <<EOF
+# IPv6 Disabled
+net.ipv6.conf.all.disable_ipv6=0
+net.ipv6.conf.default.disable_ipv6=0
+
+EOF
+    fi
   fi
   
   sysctl -p > /dev/null 2>&1
@@ -427,20 +493,24 @@ EOF
   echo -e "${GREEN_BG}[Optimization] Network optimization applied${NORMAL}"
   echo -e "${CYAN_BG}  ✅ BBR 拥塞控制${NORMAL}"
   echo -e "${CYAN_BG}  ✅ UDP 缓冲区 64MB${NORMAL}"
+  echo -e "${CYAN_BG}  ✅ TCP 缓冲区 64MB${NORMAL}"
   echo -e "${CYAN_BG}  ✅ 网络队列 30000${NORMAL}"
   echo -e "${CYAN_BG}  ✅ 端口范围 10000-65535${NORMAL}"
   echo -e "${CYAN_BG}  ✅ QUIC 低延迟优化${NORMAL}"
+  if [ "$has_ipv6" = true ]; then
+    echo -e "${MAGENTA_BG}  ✅ IPv6 双栈优化${NORMAL}"
+  fi
 }
 
 apply_network_optimization
 
 # Create system service
-echo -e "${GREEN_BG}Installing system service...${NORMAL}"
+echo -e "${GREEN_BG}[Service] Installing systemd service...${NORMAL}"
 
 cat > /etc/systemd/system/hy2-${port}.service <<EOF
 [Unit]
 Description=Hysteria 2 Server (${HOSTNAME} - Port ${port})
-After=network.target nss-lookup.target
+After=network-online.target nss-lookup.target
 Wants=network-online.target
 
 [Service]
@@ -465,7 +535,7 @@ systemctl restart hy2-${port}
 sleep 3
 
 if systemctl is-active --quiet hy2-${port}; then
-  echo -e "${GREEN_BG}[Service] hy2-${port} started successfully${NORMAL}"
+  echo -e "${GREEN_BG}[Service] ✅ hy2-${port} started successfully${NORMAL}"
 else
   echo -e "${RED_BG}[ERROR] Service failed to start. Showing detailed logs:${NORMAL}"
   echo ""
@@ -478,11 +548,9 @@ fi
 
 # Generate share links
 hy2_url_v4="hysteria2://$(urlencode "$password")@${ip}:${port}/?insecure=1&sni=${SNI_DOMAIN}&alpn=h3#$(urlencode "${HOSTNAME}-HY2-${port}")"
-hy2_url_compat_v4="hy2://$(urlencode "$password")@${ip}:${port}/?insecure=1&sni=${SNI_DOMAIN}#$(urlencode "${HOSTNAME}-HY2-${port}")"
 
-if [ -n "$ipv6" ]; then
+if [ "$has_ipv6" = true ]; then
   hy2_url_v6="hysteria2://$(urlencode "$password")@[${ipv6}]:${port}/?insecure=1&sni=${SNI_DOMAIN}&alpn=h3#$(urlencode "${HOSTNAME}-HY2-${port}-IPv6")"
-  hy2_url_compat_v6="hy2://$(urlencode "$password")@[${ipv6}]:${port}/?insecure=1&sni=${SNI_DOMAIN}#$(urlencode "${HOSTNAME}-HY2-${port}-IPv6")"
 fi
 
 json_config=$(cat <<EOF
@@ -502,7 +570,7 @@ json_config=$(cat <<EOF
 EOF
 )
 
-if [ -n "$ipv6" ]; then
+if [ "$has_ipv6" = true ]; then
   json_config_v6=$(cat <<EOF
 {
   "type": "hysteria2",
@@ -534,7 +602,7 @@ clash_config=$(cat <<EOF
 EOF
 )
 
-if [ -n "$ipv6" ]; then
+if [ "$has_ipv6" = true ]; then
   clash_config_v6=$(cat <<EOF
 - name: ${HOSTNAME}-HY2-${port}-IPv6
   type: hysteria2
@@ -558,17 +626,22 @@ echo ""
 echo -e "${GREEN_BG}主机名:${NORMAL} ${HOSTNAME}"
 echo -e "${GREEN_BG}地区:${NORMAL} ${REGION}"
 echo -e "${GREEN_BG}服务器 IPv4:${NORMAL} ${ip}:${port}"
-if [ -n "$ipv6" ]; then
-  echo -e "${CYAN_BG}服务器 IPv6:${NORMAL} [${ipv6}]:${port}"
+if [ "$has_ipv6" = true ]; then
+  echo -e "${CYAN_BG}服务器 IPv6:${NORMAL} [${ipv6}]:${port} ${MAGENTA_BG}(双栈出口)${NORMAL}"
 fi
 echo -e "${GREEN_BG}密码:${NORMAL} ${password}"
 echo -e "${GREEN_BG}SNI:${NORMAL} ${SNI_DOMAIN}"
 echo -e "${GREEN_BG}带宽:${NORMAL} 自动协商 无限制"
+if [ "$has_ipv6" = true ]; then
+  echo -e "${MAGENTA_BG}网络模式:${NORMAL} IPv4/IPv6 双栈"
+else
+  echo -e "${GREEN_BG}网络模式:${NORMAL} IPv4 单栈"
+fi
 echo ""
 echo -e "${GREEN_BG}Sing-box 配置 IPv4:${NORMAL}"
 echo "$json_config"
 echo ""
-if [ -n "$ipv6" ]; then
+if [ "$has_ipv6" = true ]; then
   echo -e "${CYAN_BG}Sing-box 配置 IPv6:${NORMAL}"
   echo "$json_config_v6"
   echo ""
@@ -576,7 +649,7 @@ fi
 echo -e "${GREEN_BG}Clash Meta 配置 IPv4:${NORMAL}"
 echo "$clash_config"
 echo ""
-if [ -n "$ipv6" ]; then
+if [ "$has_ipv6" = true ]; then
   echo -e "${CYAN_BG}Clash Meta 配置 IPv6:${NORMAL}"
   echo "$clash_config_v6"
   echo ""
@@ -592,7 +665,7 @@ echo ""
 echo -e "${GREEN_BG}v2rayN 链接 IPv4:${NORMAL}"
 echo "$hy2_url_v4"
 echo ""
-if [ -n "$ipv6" ]; then
+if [ "$has_ipv6" = true ]; then
   echo -e "${CYAN_BG}v2rayN 链接 IPv6:${NORMAL}"
   echo "$hy2_url_v6"
   echo ""
@@ -604,8 +677,9 @@ cat > /opt/skim-hy2/$port/client-config.txt <<EOF
 Hysteria2 客户端配置
 主机名: ${HOSTNAME}
 地区: ${REGION}
+网络模式: $([ "$has_ipv6" = true ] && echo "IPv4/IPv6 双栈" || echo "IPv4 单栈")
 服务器 IPv4: ${ip}:${port}
-$([ -n "$ipv6" ] && echo "服务器 IPv6: [${ipv6}]:${port}")
+$([ "$has_ipv6" = true ] && echo "服务器 IPv6: [${ipv6}]:${port} (独立出口)")
 密码: ${password}
 SNI: ${SNI_DOMAIN}
 带宽: 自动协商 无限制
@@ -614,13 +688,13 @@ SNI: ${SNI_DOMAIN}
 【Sing-box 配置 IPv4】
 ${json_config}
 
-$([ -n "$ipv6" ] && echo "【Sing-box 配置 IPv6】
+$([ "$has_ipv6" = true ] && echo "【Sing-box 配置 IPv6】
 ${json_config_v6}")
 
 【Clash Meta 配置 IPv4】
 ${clash_config}
 
-$([ -n "$ipv6" ] && echo "【Clash Meta 配置 IPv6】
+$([ "$has_ipv6" = true ] && echo "【Clash Meta 配置 IPv6】
 ${clash_config_v6}")
 
 ========================================
@@ -630,12 +704,15 @@ v2rayN 导入方法:
 3. 或点击"从剪贴板导入批量URL"
 
 手动配置方法:
-- 地址: ${ip} $([ -n "$ipv6" ] && echo "或 ${ipv6}")
+- IPv4 地址: ${ip}
+$([ "$has_ipv6" = true ] && echo "- IPv6 地址: ${ipv6} (独立 IPv6 出口)")
 - 端口: ${port}
 - 密码: ${password}
 - SNI: ${SNI_DOMAIN}
 - ALPN: h3
 - 跳过证书验证: 勾选
+
+$([ "$has_ipv6" = true ] && echo "💡 提示: IPv6 节点会使用 IPv6 出口，显示真实 IPv6 地址")
 
 ========================================
 管理命令:
@@ -643,21 +720,15 @@ v2rayN 导入方法:
 - 停止: systemctl stop hy2-${port}
 - 状态: systemctl status hy2-${port}
 - 日志: journalctl -u hy2-${port} -f
-- 换端口: bash hy2.sh 新端口号  (例如: bash hy2.sh 12345)
+- 换端口: bash hy2.sh 新端口号
 - 卸载: systemctl disable --now hy2-${port} && rm /etc/systemd/system/hy2-${port}.service && rm -rf /opt/skim-hy2/${port} && rm -f /var/log/hy2-${port}.log
 
 ========================================
 【v2rayN 链接 IPv4】
 ${hy2_url_v4}
 
-$([ -n "$ipv6" ] && echo "【v2rayN 链接 IPv6】
+$([ "$has_ipv6" = true ] && echo "【v2rayN 链接 IPv6】
 ${hy2_url_v6}")
-
-【兼容格式链接 IPv4】
-${hy2_url_compat_v4}
-
-$([ -n "$ipv6" ] && echo "【兼容格式链接 IPv6】
-${hy2_url_compat_v6}")
 ========================================
 EOF
 
@@ -670,12 +741,13 @@ telegram_message=$(cat <<EOF
 ━━━━━━━━━━━━━━━━━━━━
 • 主机名: \`${HOSTNAME}\`
 • 地区: \`${REGION}\`
-• 服务器IPv4: \`${ip}\`$([ -n "$ipv6" ] && echo "
-• 服务器IPv6: \`${ipv6}\`")
+• 服务器 IPv4: \`${ip}\`$([ "$has_ipv6" = true ] && echo "
+• 服务器 IPv6: \`${ipv6}\`")
 • 端口: \`${port}\`
 • 密码: \`${password}\`
-• SNI伪装: \`${SNI_DOMAIN}\`
+• SNI 伪装: \`${SNI_DOMAIN}\`
 • 带宽模式: 自动协商 无限制
+$([ "$has_ipv6" = true ] && echo "• 网络模式: *IPv4/IPv6 双栈* ✅" || echo "• 网络模式: IPv4 单栈")
 
 ━━━━━━━━━━━━━━━━━━━━
 ⚙️ *性能优化*
@@ -688,6 +760,7 @@ telegram_message=$(cat <<EOF
 ✅ 2048 并发流
 ✅ 30000 网络队列
 ✅ QUIC 低延迟优化
+$([ "$has_ipv6" = true ] && echo "✅ IPv6 双栈出口优化")
 
 ━━━━━━━━━━━━━━━━━━━━
 📱 *Sing-box 配置 IPv4*
@@ -695,7 +768,7 @@ telegram_message=$(cat <<EOF
 \`\`\`json
 ${json_config}
 \`\`\`
-$([ -n "$ipv6" ] && echo "
+$([ "$has_ipv6" = true ] && echo "
 ━━━━━━━━━━━━━━━━━━━━
 📱 *Sing-box 配置 IPv6*
 ━━━━━━━━━━━━━━━━━━━━
@@ -709,7 +782,7 @@ ${json_config_v6}
 \`\`\`yaml
 ${clash_config}
 \`\`\`
-$([ -n "$ipv6" ] && echo "
+$([ "$has_ipv6" = true ] && echo "
 ━━━━━━━━━━━━━━━━━━━━
 📱 *Clash Meta 配置 IPv6*
 ━━━━━━━━━━━━━━━━━━━━
@@ -718,15 +791,16 @@ ${clash_config_v6}
 \`\`\`")
 
 ━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━
 🔗 *v2rayN 导入链接 IPv4*
 ━━━━━━━━━━━━━━━━━━━━
 \`${hy2_url_v4}\`
-$([ -n "$ipv6" ] && echo "
+$([ "$has_ipv6" = true ] && echo "
 ━━━━━━━━━━━━━━━━━━━━
 🔗 *v2rayN 导入链接 IPv6*
 ━━━━━━━━━━━━━━━━━━━━
-\`${hy2_url_v6}\`")
+\`${hy2_url_v6}\`
+
+💡 *IPv6 节点会使用 IPv6 出口*")
 
 ⏰ 部署时间: $(date '+%Y-%m-%d %H:%M:%S')
 🏷️ 主机标识: ${HOSTNAME}
@@ -740,4 +814,16 @@ echo -e "${GREEN_BG}========================================${NORMAL}"
 echo -e "${GREEN_BG}✅ 配置已保存到:${NORMAL}"
 echo -e "${GREEN_BG}   /opt/skim-hy2/${port}/client-config.txt${NORMAL}"
 echo -e "${GREEN_BG}========================================${NORMAL}"
+
+if [ "$has_ipv6" = true ]; then
+  echo ""
+  echo -e "${MAGENTA_BG}========================================${NORMAL}"
+  echo -e "${MAGENTA_BG}  🌐 IPv6 双栈模式已启用${NORMAL}"
+  echo -e "${MAGENTA_BG}========================================${NORMAL}"
+  echo -e "${CYAN_BG}• IPv4 客户端 → IPv4 出口${NORMAL}"
+  echo -e "${CYAN_BG}• IPv6 客户端 → IPv6 出口${NORMAL}"
+  echo -e "${CYAN_BG}• 服务器监听地址: [::]:${port}${NORMAL}"
+  echo -e "${MAGENTA_BG}========================================${NORMAL}"
+fi
+
 echo ""
