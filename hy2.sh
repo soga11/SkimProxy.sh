@@ -2,7 +2,7 @@
 
 # ========================================
 # Hysteria2 Enhanced Edition
-# Version: 10.2.0 - IPv6 双栈优化版
+# Version: 10.2.1 - IPv6 双栈优化版（修复 YAML 格式）
 # Date: 2026-01-02
 # ========================================
 
@@ -318,19 +318,49 @@ echo -e "${GREEN_BG}SNI${NORMAL}: ${SNI_DOMAIN}"
 echo -e "${GREEN_BG}CA SHA256${NORMAL}: $(openssl x509 -noout -fingerprint -sha256 -in /opt/skim-hy2/$port/server.crt | cut -d'=' -f2)"
 echo ""
 
-# Create hy2 config with IPv6 dual-stack support
+# Create hy2 config with IPv6 dual-stack support (修复 YAML 格式)
 if [ "$has_ipv6" = true ]; then
-  # IPv6 双栈模式：监听 [::] 可以同时处理 IPv4 和 IPv6
-  listen_addr="[::]:${port}"
   echo -e "${CYAN_BG}[Config] Enabling IPv6 dual-stack mode${NORMAL}"
-else
-  # 仅 IPv4 模式
-  listen_addr=":${port}"
-  echo -e "${GREEN_BG}[Config] Using IPv4-only mode${NORMAL}"
-fi
+  # IPv6 双栈监听，直接写入配置文件
+  cat > /opt/skim-hy2/$port/config.yaml <<'EOFCONFIG'
+listen: "[::]:PORT_PLACEHOLDER"
 
-cat <<EOF > /opt/skim-hy2/$port/config.yaml
-listen: ${listen_addr}
+tls:
+  cert: /opt/skim-hy2/PORT_PLACEHOLDER/server.crt
+  key: /opt/skim-hy2/PORT_PLACEHOLDER/server.key
+
+auth:
+  type: password
+  password: PASSWORD_PLACEHOLDER
+
+quic:
+  initStreamReceiveWindow: 33554432
+  maxStreamReceiveWindow: 33554432
+  initConnReceiveWindow: 67108864
+  maxConnReceiveWindow: 67108864
+  maxIdleTimeout: 60s
+  maxIncomingStreams: 2048
+  disablePathMTUDiscovery: false
+
+disableUDP: false
+udpIdleTimeout: 60s
+
+speedTest: false
+
+masquerade:
+  type: proxy
+  proxy:
+    url: https://www.apple.com
+    rewriteHost: true
+EOFCONFIG
+  # 替换占位符
+  sed -i "s/PORT_PLACEHOLDER/${port}/g" /opt/skim-hy2/$port/config.yaml
+  sed -i "s/PASSWORD_PLACEHOLDER/${password}/g" /opt/skim-hy2/$port/config.yaml
+else
+  echo -e "${GREEN_BG}[Config] Using IPv4-only mode${NORMAL}"
+  # IPv4 单栈监听
+  cat > /opt/skim-hy2/$port/config.yaml <<EOFCONFIG
+listen: :${port}
 
 tls:
   cert: /opt/skim-hy2/${port}/server.crt
@@ -359,7 +389,12 @@ masquerade:
   proxy:
     url: https://www.apple.com
     rewriteHost: true
-EOF
+EOFCONFIG
+fi
+
+# 验证生成的配置
+echo -e "${GREEN_BG}[Config] Generated configuration (first line):${NORMAL}"
+head -n 1 /opt/skim-hy2/$port/config.yaml
 
 # Apply BBR and UDP optimization with IPv6 support
 apply_network_optimization() {
