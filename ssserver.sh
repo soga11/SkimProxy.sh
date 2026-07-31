@@ -1,259 +1,218 @@
 #!/bin/bash
 
-GREEN_BG='\033[42;30m'   # Underlined, green background, black text
-RED_BG='\033[41;97m'     # Red background (41), white text (97)
-WHITE_BG='\033[47;30m'   # White background (47), black text (30)
-NORMAL='\033[0m'         # Reset formatting
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
-# Check if the script is being run as root
-if [[ $EUID -ne 0 ]]; then
-  echo -e "${RED_BG}This script requires root privileges.${NORMAL} Please run as root or use sudo."
-  exit 1
-fi
+show_help() {
+    echo -e "${GREEN}Shadowsocks 节点管理脚本${NC}"
+    echo -e "用法: $0 [命令]"
+    echo -e ""
+    echo -e "命令:"
+    echo -e "  list        列出所有节点"
+    echo -e "  status      查看所有节点状态"
+    echo -e "  restart     重启所有节点"
+    echo -e "  stop        停止所有节点"
+    echo -e "  start       启动所有节点"
+    echo -e "  logs        查看所有节点日志"
+    echo -e "  add         添加新节点"
+    echo -e "  remove      移除节点"
+    echo -e "  backup      备份配置"
+    echo -e "  restore     恢复配置"
+}
 
-# Detect CPU architecture
-cpu_arch=$(uname -m)
-case "$cpu_arch" in
-  x86_64) arch="x86_64" ;;
-  aarch64) arch="aarch64" ;;
-  *) echo -e "${RED_BG}Unsupported architecture: $cpu_arch${NORMAL}"; exit 1 ;;
-esac
-
-urlencode() {
-    local LANG=C
-    local input
-    if [ -t 0 ]; then
-        input="$1"  # if no pipe, use argument
-    else
-        input=$(cat)  # if piped, read from stdin
-    fi
-    local length="${#input}"
-    for (( i = 0; i < length; i++ )); do
-        c="${input:i:1}"
-        case $c in
-            [a-zA-Z0-9.~_-]) printf "%s" "$c" ;;
-            $'\n') printf "%%0A" ;;  # Handle newlines
-            *) printf '%%%02X' "'$c" ;;
-        esac
+list_nodes() {
+    echo -e "${GREEN}当前节点列表:${NC}"
+    echo -e "端口  服务名称          状态"
+    echo -e "---  ----------------  ------"
+    
+    for service in /etc/systemd/system/skim-ss-*.service; do
+        if [[ -f "$service" ]]; then
+            port=$(basename "$service" | sed 's/skim-ss-\(.*\)\.service/\1/')
+            service_name="skim-ss-$port"
+            status=$(systemctl is-active "$service_name" 2>/dev/null)
+            
+            if [[ $status == "active" ]]; then
+                echo -e "$port  $service_name  ${GREEN}运行中${NC}"
+            else
+                echo -e "$port  $service_name  ${RED}已停止${NC}"
+            fi
+        fi
     done
-    echo
 }
 
-# Function to detect the package manager and install missing packages
-install_packages() {
-  if command -v apk &> /dev/null; then
-    apk update && apk add curl jq tar openssl xz
-  elif command -v apt-get &> /dev/null; then
-    apt-get update && apt-get install -y curl jq tar openssl xz-utils
-  elif command -v pacman &> /dev/null; then
-    pacman -Syu --noconfirm curl jq tar openssl xz
-  elif command -v dnf &> /dev/null; then
-    dnf install -y curl jq tar openssl xz
-  elif command -v zypper &> /dev/null; then
-    zypper install -y curl jq tar openssl xz
-  elif command -v yum &> /dev/null; then
-    yum install -y curl jq tar openssl xz
-  else
-    echo -e "${RED_BG}[ERROR] Unsupported package manager.${NORMAL} Please install curl, jq, tar, and openssl manually."
-    exit 1
-  fi
+check_status() {
+    echo -e "${GREEN}所有节点状态:${NC}"
+    for service in /etc/systemd/system/skim-ss-*.service; do
+        if [[ -f "$service" ]]; then
+            port=$(basename "$service" | sed 's/skim-ss-\(.*\)\.service/\1/')
+            systemctl status "skim-ss-$port" --no-pager
+            echo -e ""
+        fi
+    done
 }
 
-# Install GNU grep if BusyBox ver grep found
-is_busybox_grep() {
-  grep --version 2>&1 | grep -q BusyBox
-}
-if is_busybox_grep; then
-  echo -e "${GREEN_BG}[Requirements] BusyBox grep detected. Installing GNU grep.${NORMAL}"
-
-  if command -v apk >/dev/null; then
-    apk add grep
-  elif command -v apt-get >/dev/null; then
-    apt-get update && apt-get install -y grep
-  elif command -v pacman >/dev/null; then
-    pacman -Sy --noconfirm grep
-  else
-    echo -e "${RED_BG}[ERROR] Unsupported package manager.${NORMAL} Please install GNU grep manually."
-    exit 1
-  fi
-fi
-
-# Install required tools if missing
-for tool in curl jq tar openssl xz; do
-  if ! command -v "$tool" &> /dev/null; then
-    echo -e "${GREEN_BG}[Requirements] Installing missing dependencies...${NORMAL}"
-    install_packages
-    break
-  fi
-done
-
-# Get the latest release version from GitHub API
-get_latest_version() {
-  latest_version=$(curl -s "https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases/latest" | jq -r .tag_name)
-  if [[ "$latest_version" == "null" ]]; then
-    echo -e "${RED_BG}Unable to fetch latest version from GitHub.${NORMAL}"
-    echo "v1.22.0"
-  else
-    echo "$latest_version"
-  fi
-}
-# Download ss-rust ssserver
-download_ss_rust() {
-  ### Install ss-rust ssserver
-  # - Create target directory
-  mkdir -p /opt/skim-ss/
-  # - Construct the download URL
-  url="https://github.com/shadowsocks/shadowsocks-rust/releases/download/${version}/shadowsocks-${version}.${arch}-unknown-linux-musl.tar.xz"
-  # - Download and extract
-  echo -e "${GREEN_BG}Downloading ${url}...${NORMAL}"
-  curl -s -L -o shadowsocks.tar.xz "$url"
-  tar -xvf shadowsocks.tar.xz -C /opt/skim-ss/ > /dev/null
-  rm -rf shadowsocks.tar.xz
-  # - Keep only the ssserver binary and remove other files
-  find /opt/skim-ss/ -type f ! -name "ssserver" -exec rm -f {} \;
-  echo -e "${GREEN_BG}ss-rust ssserver installed to /opt/skim-ss/${NORMAL}"
+restart_all() {
+    echo -e "${YELLOW}正在重启所有节点...${NC}"
+    for service in /etc/systemd/system/skim-ss-*.service; do
+        if [[ -f "$service" ]]; then
+            port=$(basename "$service" | sed 's/skim-ss-\(.*\)\.service/\1/')
+            systemctl restart "skim-ss-$port"
+            echo -e "已重启: skim-ss-$port"
+        fi
+    done
 }
 
-# Set version argument or fallback to latest
-if [ -z "$3" ] || [ "$3" = "auto" ]; then
-  version=$(get_latest_version)
-else
-  version="$3"
-fi
+stop_all() {
+    echo -e "${YELLOW}正在停止所有节点...${NC}"
+    for service in /etc/systemd/system/skim-ss-*.service; do
+        if [[ -f "$service" ]]; then
+            port=$(basename "$service" | sed 's/skim-ss-\(.*\)\.service/\1/')
+            systemctl stop "skim-ss-$port"
+            echo -e "已停止: skim-ss-$port"
+        fi
+    done
+}
 
-# Check existing version
-if [[ -x "/opt/skim-ss/ssserver" ]]; then
-    installed_version=$("/opt/skim-ss/ssserver" --version | awk '{print $2}')
-    if [[ "v$installed_version" == "$version" ]]; then
-        echo -e "${GREEN_BG}[Requirements] ss-rust ssserver core ${version} is already installed. Skipping download.${NORMAL}"
+start_all() {
+    echo -e "${YELLOW}正在启动所有节点...${NC}"
+    for service in /etc/systemd/system/skim-ss-*.service; do
+        if [[ -f "$service" ]]; then
+            port=$(basename "$service" | sed 's/skim-ss-\(.*\)\.service/\1/')
+            systemctl start "skim-ss-$port"
+            echo -e "已启动: skim-ss-$port"
+        fi
+    done
+}
+
+show_logs() {
+    echo -e "${GREEN}所有节点日志:${NC}"
+    for service in /etc/systemd/system/skim-ss-*.service; do
+        if [[ -f "$service" ]]; then
+            port=$(basename "$service" | sed 's/skim-ss-\(.*\)\.service/\1/')
+            echo -e "${YELLOW}=== 日志: skim-ss-$port ===${NC}"
+            journalctl -u "skim-ss-$port" --no-pager -n 10
+            echo -e ""
+        fi
+    done
+}
+
+add_node() {
+    read -p "请输入节点名称: " NODE_NAME
+    read -p "请输入端口: " PORT
+    read -p "请输入密码: " PASSWORD
+    read -p "请输入加密方式 (默认 2022-blake3-aes-128-gcm): " CIPHER
+    CIPHER=${CIPHER:-2022-blake3-aes-128-gcm}
+    
+    # 添加到配置文件
+    echo "$NODE_NAME|$PORT|$PASSWORD|$CIPHER" >> ss_nodes.conf
+    
+    # 部署节点
+    bash deploy_ssserver.sh
+    
+    echo -e "${GREEN}节点已添加并部署${NC}"
+}
+
+remove_node() {
+    read -p "请输入要移除的节点端口: " PORT
+    
+    # 停止服务
+    systemctl stop "skim-ss-$PORT" 2>/dev/null
+    systemctl disable "skim-ss-$PORT" 2>/dev/null
+    
+    # 删除服务文件
+    rm -f "/etc/systemd/system/skim-ss-$PORT.service"
+    
+    # 删除配置文件
+    rm -f "/etc/skim-ss/config-$PORT.json"
+    
+    # 重新加载 systemd
+    systemctl daemon-reload
+    
+    # 从配置文件中移除
+    sed -i "/|$PORT|/d" ss_nodes.conf
+    
+    echo -e "${GREEN}节点已移除${NC}"
+}
+
+backup_config() {
+    echo -e "${GREEN}正在备份配置...${NC}"
+    backup_dir="backup_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$backup_dir"
+    
+    # 备份配置文件
+    cp ss_nodes.conf "$backup_dir/"
+    cp -r /etc/skim-ss/ "$backup_dir/"
+    cp -r /etc/systemd/system/skim-ss-*.service "$backup_dir/"
+    
+    # 备份脚本
+    cp deploy_ssserver.sh manage_ssserver.sh uninstall_ssserver.sh "$backup_dir/"
+    
+    # 创建压缩包
+    tar -czf "${backup_dir}.tar.gz" "$backup_dir"
+    rm -rf "$backup_dir"
+    
+    echo -e "${GREEN}备份完成: ${backup_dir}.tar.gz${NC}"
+}
+
+restore_config() {
+    read -p "请输入备份文件路径: " backup_file
+    
+    if [[ -f "$backup_file" ]]; then
+        echo -e "${GREEN}正在恢复配置...${NC}"
+        tar -xzf "$backup_file"
+        
+        backup_dir=$(basename "$backup_file" .tar.gz)
+        
+        # 恢复配置文件
+        cp "$backup_dir/ss_nodes.conf" .
+        cp "$backup_dir/skim-ss"/* /etc/skim-ss/
+        cp "$backup_dir"/skim-ss-*.service /etc/systemd/system/
+        
+        # 重新加载 systemd
+        systemctl daemon-reload
+        
+        echo -e "${GREEN}配置恢复完成${NC}"
+        echo -e "${YELLOW}请运行 'bash deploy_ssserver.sh' 重新部署节点${NC}"
     else
-        echo -e "${GREEN_BG}[Requirements] Installed version ($installed_version) differs from requested ($version). Updating...${NORMAL}"
-        download_ss_rust
+        echo -e "${RED}备份文件不存在${NC}"
     fi
-else
-    echo -e "${GREEN_BG}[Requirements] ss-rust ssserver core not found. Proceeding with installation...${NORMAL}"
-  download_ss_rust
-fi
-
-### Generate config
-# Accept port argument or generate a random port
-if [ -z "$1" ] || [ "$1" = "auto" ]; then
-  port=$((RANDOM % 50000 + 10000))
-else
-  port=$1
-fi
-# Accept IP argument or fetch the IP from Cloudflare CDN trace
-if [ -z "$4" ] || [ "$4" = "auto" ]; then
-  ip=$(curl -s https://cloudflare.com/cdn-cgi/trace -4 | grep -oP '(?<=ip=).*')
-  if [ -z "$ip" ]; then
-    ip=$(curl -s https://cloudflare.com/cdn-cgi/trace -6 | grep -oP '(?<=ip=).*')
-  fi
-  if echo "$ip" | grep -q ':'; then
-    ip="[$ip]"
-  fi
-else 
-  ip=$4
-fi
-# Accept the cipher arg
-if [ -z "$2" ] || [ "$2" = "auto" ]; then
-  cipher="2022-blake3-aes-128-gcm"
-else
-  cipher=$2
-fi
-# Generate password using openssl
-if [ "$cipher" = "2022-blake3-aes-256-gcm" ]; then
-  password=$(openssl rand -base64 32)
-else
-  password=$(openssl rand -base64 16)
-fi
-
-# Print the config
-echo -e "${GREEN_BG}Using address${NORMAL}: $ip:$port"
-echo -e "${GREEN_BG}Using cipher${NORMAL}: $cipher"
-echo -e "${GREEN_BG}Generated password${NORMAL}: $password"
-
-# Create system service based on init system
-echo -e "${GREEN_BG}Installing system service...${NORMAL}"
-init_system=$(cat /proc/1/comm)
-if [[ "$init_system" == "systemd" ]]; then
-  cat <<EOF > /etc/systemd/system/ssserver-${port}.service
-[Unit]
-Description=Shadowsocks Rust Server on :${port}
-After=network.target
-
-[Service]
-ExecStart=/opt/skim-ss/ssserver -U --server-addr [::]:$port --encrypt-method $cipher --password $password
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-  systemctl daemon-reload
-  systemctl enable ssserver-${port}
-  systemctl start ssserver-${port}
-  echo -e "${WHITE_BG}TO REMOVE THIS SERVICE:${NORMAL} systemctl disable --now ssserver-${port} && rm /etc/systemd/system/ssserver-${port}.service"
-
-elif [[ "$init_system" == "init" || "$init_system" == "openrc" ]]; then
-  cat <<EOF > /etc/init.d/ssserver-${port}
-#!/sbin/openrc-run
-
-name="Shadowsocks Server on :${port}"
-description="Shadowsocks Rust server on :${port}"
-command="/opt/skim-ss/ssserver"
-command_args=" -U --server-addr [::]:$port --encrypt-method $cipher --password $password"
-pidfile="/var/run/ssserver-${port}.pid"
-
-depend() {
-    need net
-    after firewall
 }
 
-start() {
-    ebegin "Starting $SERVICE_NAME"
-    start-stop-daemon --start --background --make-pidfile --pidfile \$pidfile --exec \$command -- \$command_args
-    eend \$?
-}
-
-stop() {
-    ebegin "Stopping $SERVICE_NAME"
-    start-stop-daemon --stop --pidfile \$pidfile
-    eend \$?
-}
-
-restart() {
-    stop
-    start
-}
-EOF
-
-  chmod +x /etc/init.d/ssserver-${port}
-  rc-update add ssserver-${port} default
-  rc-service ssserver-${port} start
-  echo -e "${WHITE_BG}TO REMOVE THIS SERVICE:${NORMAL} rc-update del ssserver-${port} default && rc-service ssserver-${port} stop && rm /etc/init.d/ssserver-${port}"
-
-else
-  echo -e "${RED_BG}Unsupported init system: $init_system.${NORMAL}"
-  exit 1
-fi
-
-# Generate ss:// URL
-ss_url="ss://$(echo -n "${cipher}:${password}" | base64 | urlencode)@$ip:$port#$(urlencode "SkimProxy.sh Shadowsocks $cipher $ip:$port")"
-# Generate JSON configuration
-json_config=$(cat <<EOF
-{
-  "type": "shadowsocks",
-  "tag": "shadowsocks-server",
-  "server": "$ip",
-  "server_port": $port,
-  "method": "$cipher",
-  "password": "$password"
-}
-EOF
-)
-echo -e "${GREEN_BG}Shadowsocks URL:${NORMAL} $ss_url"
-echo -e "${GREEN_BG}JSON configuration:${NORMAL} $json_config"
-
-echo -e "${GREEN_BG}Shadowsocks Rust installed.${NORMAL}"
-echo -e "${GREEN_BG}Service ssserver-${port} has been started.${NORMAL}"
-
+# 主函数
+case "$1" in
+    list)
+        list_nodes
+        ;;
+    status)
+        check_status
+        ;;
+    restart)
+        restart_all
+        ;;
+    stop)
+        stop_all
+        ;;
+    start)
+        start_all
+        ;;
+    logs)
+        show_logs
+        ;;
+    add)
+        add_node
+        ;;
+    remove)
+        remove_node
+        ;;
+    backup)
+        backup_config
+        ;;
+    restore)
+        restore_config
+        ;;
+    *)
+        show_help
+        ;;
+esac
