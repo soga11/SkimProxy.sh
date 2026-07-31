@@ -97,6 +97,7 @@ get_latest_version() {
     echo "$latest_version"
   fi
 }
+
 # Download ss-rust ssserver
 download_ss_rust() {
   ### Install ss-rust ssserver
@@ -134,13 +135,26 @@ else
 fi
 
 ### Generate config
-# Accept port argument or generate a random port
+# 核心修改：设置默认参数
+# 默认端口: 52016
+# 默认加密方式: 2022-blake3-aes-128-gcm  
+# 默认密码: Aq112211!Aq112211!
+
+# 接受端口参数或使用默认端口52016
 if [ -z "$1" ] || [ "$1" = "auto" ]; then
-  port=$((RANDOM % 50000 + 10000))
+  port=52016
 else
   port=$1
 fi
-# Accept IP argument or fetch the IP from Cloudflare CDN trace
+
+# 接受加密方式参数或使用默认加密方式
+if [ -z "$2" ] || [ "$2" = "auto" ]; then
+  cipher="2022-blake3-aes-128-gcm"
+else
+  cipher=$2
+fi
+
+# 接受服务器IP参数或自动获取
 if [ -z "$4" ] || [ "$4" = "auto" ]; then
   ip=$(curl -s https://cloudflare.com/cdn-cgi/trace -4 | grep -oP '(?<=ip=).*')
   if [ -z "$ip" ]; then
@@ -152,23 +166,18 @@ if [ -z "$4" ] || [ "$4" = "auto" ]; then
 else 
   ip=$4
 fi
-# Accept the cipher arg
-if [ -z "$2" ] || [ "$2" = "auto" ]; then
-  cipher="2022-blake3-aes-128-gcm"
+
+# 接受密码参数或使用默认密码
+if [ -z "$5" ] || [ "$5" = "auto" ]; then
+  password="Aq112211!Aq112211!"
 else
-  cipher=$2
-fi
-# Generate password using openssl
-if [ "$cipher" = "2022-blake3-aes-256-gcm" ]; then
-  password=$(openssl rand -base64 32)
-else
-  password=$(openssl rand -base64 16)
+  password=$5
 fi
 
 # Print the config
 echo -e "${GREEN_BG}Using address${NORMAL}: $ip:$port"
 echo -e "${GREEN_BG}Using cipher${NORMAL}: $cipher"
-echo -e "${GREEN_BG}Generated password${NORMAL}: $password"
+echo -e "${GREEN_BG}Using password${NORMAL}: $password"
 
 # Create system service based on init system
 echo -e "${GREEN_BG}Installing system service...${NORMAL}"
@@ -254,4 +263,3 @@ echo -e "${GREEN_BG}JSON configuration:${NORMAL} $json_config"
 
 echo -e "${GREEN_BG}Shadowsocks Rust installed.${NORMAL}"
 echo -e "${GREEN_BG}Service ssserver-${port} has been started.${NORMAL}"
-
